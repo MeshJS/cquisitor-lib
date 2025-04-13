@@ -19,27 +19,37 @@ pub fn decode_transaction(input: &str, is_hex: bool, is_bech32: bool, is_base58:
     }
     let fixed_tx = csl::FixedTransaction::from_hex(input)
         .map_err(|e| format!("Failed to decode Transaction: {:?}", e))?;
-    let tx = csl::Transaction::from_hex(input)
-        .map_err(|e| format!("Failed to decode Transaction: {:?}", e))?;
+    let parsed_tx: Value = csl::Transaction::from_hex(input)
+        .map_err(|e| format!("Failed to decode Transaction: {:?}", e))
+        .and_then(|tx| tx.to_json().map_err(|e| format!("Failed to convert to JSON: {:?}", e)))
+        .and_then(|json| serde_json::from_str(&json).map_err(|e| format!("Failed to convert to JSON: {:?}", e)))?;
     let value = Ok::<Value, String>(serde_json::json!({
         "transaction_hash": fixed_tx.transaction_hash().to_hex(),
-        "transaction": serde_json::from_str(&tx.to_json()
-            .map_err(|e| format!("Failed to convert to JSON: {:?}", e))?)
-        .map_err(|e| format!("Failed to convert to JSON: {:?}", e))?,
+        "transaction": parsed_tx,
     }))?;
     from_serde_json_value(&value).map_err(|e| format!("Failed to convert to JsValue: {}", e))
 }
 
 pub fn decode_address_internal(input: &str, is_hex: bool, is_bech32: bool, is_base58: bool) -> Result<csl::Address, String> {
-    if let Ok(decoded) = csl::Address::from_bech32(input) {
-        Ok(decoded)
-    } else if let Ok(decoded) = csl::Address::from_hex(input) {
-        Ok(decoded)
-    } else if let Ok(decoded) = decode_byron_addr_internal(input, is_hex, is_bech32, is_base58) {
-        Ok(decoded.to_address())
-    } else {
-        Err("Failed to decode".to_string())
+    if is_bech32 {
+        if let Ok(decoded) = csl::Address::from_bech32(input) {
+            return Ok(decoded);
+        }
     }
+    if is_base58 {
+        return Ok(decode_byron_addr_internal(input, is_hex, is_bech32, is_base58)?.to_address());
+    }
+    if is_hex {
+        if let Ok(decoded) = csl::Address::from_hex(input) {
+            return Ok(decoded);
+        } else if let Ok(byron_addr) = decode_byron_addr_internal(input, is_hex, is_bech32, is_base58) {
+            return Ok(byron_addr.to_address());
+        } else {
+            return Err("Failed to decode".to_string());
+        }
+    }
+
+    Err("Failed to decode".to_string())
 }
 
 pub fn format_address(address: csl::Address) -> Result<JsValue, String> {
@@ -211,11 +221,13 @@ pub fn decode_native_script(input: &str, is_hex: bool, is_bech32: bool, is_base5
 
     let script = csl::NativeScript::from_hex(input)
         .map_err(|e| format!("Failed to decode NativeScript: {:?}", e))?;
+    let script_json = script.to_json()
+        .map_err(|e| format!("Failed to convert to JSON: {:?}", e))?;
+    let script_value: Value = serde_json::from_str(&script_json)
+        .map_err(|e| format!("Failed to convert to JSON: {:?}", e))?;
     let value =  Ok::<Value, String>(serde_json::json!({
       "script_hash": script.hash().to_hex(),
-      "script": serde_json::from_str(&script.to_json()
-            .map_err(|e| format!("Failed to convert to JSON: {:?}", e))?)
-        .map_err(|e| format!("Failed to convert to JSON: {:?}", e))?,
+      "script": script_value,
     }))?;
     from_serde_json_value(&value).map_err(|e| format!("Failed to convert to JsValue: {}", e))
 }
@@ -271,7 +283,7 @@ pub fn decode_plutus_data(
         Err("Only hex encoding is supported".to_string())?;
     }
     if let Ok(decoded) = csl::PlutusData::from_hex(input) {
-        let value = decoded
+        let value: Value = decoded
             .to_json(map_schema(schema))
             .map_err(|e| format!("Failed to convert to JSON: {:?}", e))
             .and_then(|json| {
