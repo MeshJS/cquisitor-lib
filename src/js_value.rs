@@ -1,5 +1,6 @@
 use std::fmt::format;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
@@ -25,7 +26,9 @@ impl JsValue {
 pub fn from_serde_json_value(value: &JsonValue) -> Result<JsValue, String> {
     #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
     {
-        serde_wasm_bindgen::to_value(value)
+        let mut serializer = serde_wasm_bindgen::Serializer::json_compatible();
+        serializer = serializer.serialize_large_number_types_as_bigints(true);
+        value.serialize(&serializer)
             .map_err(|err| format!("Failed to convert JSON to JsValue: {:?}", err))
     }
 
