@@ -1,7 +1,7 @@
 use crate::bingen::wasm_bindgen;
 use crate::js_error::JsError;
 use crate::plutus::data_mapper::{to_pallas_cost_modesl, to_pallas_utxos};
-use crate::plutus::models::{CostModels, UTxO};
+use crate::common::{CostModels, UTxO};
 use pallas_primitives::conway::{MintedTx, Redeemer, RedeemerTag};
 use pallas_primitives::ExUnits;
 use pallas_traverse::{Era, MultiEraTx};

@@ -8,7 +8,7 @@ use pallas_primitives::{conway::{
     PostAlonzoTransactionOutput, ScriptRef, TransactionOutput, Value,
 }, DatumHash, Fragment};
 use crate::js_error::JsError;
-use crate::plutus::models::{Asset, CostModels, TxOutput, UTxO};
+use crate::common::{Asset, CostModels, TxOutput, UTxO};
 
 pub fn to_pallas_cost_modesl(cost_models: &CostModels) -> pallas_primitives::conway::CostModels {
     pallas_primitives::conway::CostModels {
@@ -83,8 +83,8 @@ pub fn to_pallas_datum(utxo_output: &TxOutput) -> Result<Option<DatumOption>, Js
 
 pub fn to_pallas_value(assets: &Vec<Asset>) -> Result<Value, JsError> {
     if assets.len() == 1 {
-        match assets[0].unit().as_str() {
-            "lovelace" => Ok(Value::Coin(assets[0].quantity().parse::<u64>().unwrap())),
+        match assets[0].unit.as_str() {
+            "lovelace" => Ok(Value::Coin(assets[0].quantity.parse::<u64>().unwrap())),
             _ => Err(JsError::new(&"Invalid value")),
         }
     } else {
@@ -96,15 +96,15 @@ pub fn to_pallas_multi_asset_value(assets: &Vec<Asset>) -> Result<Value, JsError
     let mut coins: Coin = 0;
     let mut asset_mapping: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for asset in assets {
-        if asset.unit() == "lovelace" || asset.unit().is_empty() {
-            coins = asset.quantity().parse::<u64>().unwrap();
+        if asset.unit == "lovelace" || asset.unit.is_empty() {
+            coins = asset.quantity.parse::<u64>().unwrap();
         } else {
-            let asset_unit = asset.unit();
+            let asset_unit = &asset.unit;
             let (policy_id, asset_name) = asset_unit.split_at(56);
             asset_mapping
                 .entry(policy_id.to_string())
                 .or_default()
-                .push((asset_name.to_string(), asset.quantity().clone()))
+                .push((asset_name.to_string(), asset.quantity.clone()))
         }
     }
 

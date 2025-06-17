@@ -61,7 +61,8 @@ if command -v jq >/dev/null 2>&1; then
       "browser/cquisitor_lib_bg.wasm",
       "browser/cquisitor_lib.js",
       "browser/cquisitor_lib.d.ts",
-      "browser/cquisitor_lib_bg.wasm.d.ts"
+      "browser/cquisitor_lib_bg.wasm.d.ts",
+      "browser/cquisitor_lib_bg.js"
     ] |
     # Define conditional exports for Node.js and browser
     .exports = {

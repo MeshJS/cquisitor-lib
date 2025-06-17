@@ -15,10 +15,13 @@
     "lint": "eslint .",
     "clean": "rimraf ./pkg",
     "rust:build-wasm:node": "rimraf ./pkg/node && WASM_BINDGEN_WEAKREF=1 wasm-pack build --target nodejs --out-dir pkg/node",
-    "rust:build-wasm:browser": "rimraf ./pkg/browser && WASM_BINDGEN_WEAKREF=1 wasm-pack build --target web --out-dir pkg/browser",
+    "rust:build-wasm:browser": "rimraf ./pkg/browser && WASM_BINDGEN_WEAKREF=1 wasm-pack build --target browser --out-dir pkg/browser",
     "rust:build-wasm": "npm run rust:build-wasm:node && npm run rust:build-wasm:browser",
     "postbuild": "./post-build.sh",
-    "build-all": "npm run clean && npm run rust:build-wasm && npm run postbuild"
+    "build-all": "npm run clean && npm run rust:build-wasm && npm run postbuild",
+    "generate-dts": "./generate-types.sh",
+    "generate-schemas": "cargo run --bin generate_schemas schemas",
+    "schemas-to-dts": "node schema-to-ts.js schemas types"
   },
   "keywords": [],
   "author": "Evgenii Lisitskii",
