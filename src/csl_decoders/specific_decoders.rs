@@ -131,15 +131,13 @@ pub fn format_credential(cred: csl::Credential) -> Result<Value, String> {
     let credential_str = match kind {
         csl::CredKind::Key => {
             let key = cred.to_keyhash().unwrap();
-            key.to_bech32("")
+            key.to_hex()
         }
         csl::CredKind::Script => {
             let script = cred.to_scripthash().unwrap();
-            script.to_bech32("")
+            script.to_hex()
         }
-    }
-    .map_err(|e| format!("Failed to convert to bech32: {:?}", e))?;
-
+    };
     Ok(serde_json::json!({
         "type": credential_kind_to_string(kind),
         "credential": credential_str,
