@@ -60,7 +60,7 @@ pub struct RequiredDatumWitness {
     pub entity_index: u32,
 }
 
-pub struct WitnessValidationContext<'a> {
+pub struct WitnessValidator<'a> {
     /// Required VKey witnesses
     pub required_vkey_witnesses: Vec<RequiredVKeyWitness>,
     /// Required native script witnesses
@@ -89,7 +89,7 @@ pub struct WitnessValidationContext<'a> {
     pub validation_input_context: &'a ValidationInputContext,
 }
 
-impl<'a> WitnessValidationContext<'a> {
+impl<'a> WitnessValidator<'a> {
     pub fn new(
         tx: &csl::Transaction,
         validation_input_context: &'a ValidationInputContext,

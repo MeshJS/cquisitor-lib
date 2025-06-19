@@ -13,7 +13,7 @@ enum InvalidInputType {
     HasNonAdaAssets,
 }
 
-pub struct CollateralValidationContext {
+pub struct CollateralValidator {
     pub invalid_inputs: Vec<(csl::TransactionInput, u32, InvalidInputType)>,
     pub total_input: Value,
     pub collateral_return: Option<Value>,
@@ -26,7 +26,7 @@ pub struct CollateralValidationContext {
     pub min_ada_for_collateral_return: Option<i128>,
 }
 
-impl CollateralValidationContext {
+impl CollateralValidator {
     pub fn new(tx: &csl::Transaction, validation_input_context: &ValidationInputContext) -> Self {
         let total_input = calculate_total_input(tx, validation_input_context);
         let collateral_return = calculate_total_output(tx);

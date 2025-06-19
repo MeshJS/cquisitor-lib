@@ -52,13 +52,13 @@ struct RegistrationState {
     committee_resignations_in_tx: HashSet<LocalCredential>,
 }
 
-pub struct RegistrationValidationContext<'a> {
+pub struct RegistrationValidator<'a> {
     pub certificates: Vec<CertificateInfo>,
     pub registration_state: RegistrationState,
     pub validation_input_context: &'a ValidationInputContext,
 }
 
-impl<'a> RegistrationValidationContext<'a> {
+impl<'a> RegistrationValidator<'a> {
     pub fn new(tx_body: &'a csl::TransactionBody, validation_input_context: &'a ValidationInputContext) -> Self {
         let mut certificates = Vec::new();
         let mut registration_state = RegistrationState {

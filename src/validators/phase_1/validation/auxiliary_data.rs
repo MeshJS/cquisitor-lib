@@ -1,14 +1,14 @@
 use cardano_serialization_lib as csl;
 use crate::validators::phase_1::errors::{Phase1Error, ValidationError, ValidationResult};
 
-pub struct AuxiliaryDataValidationContext {
+pub struct AuxiliaryDataValidator {
     pub auxiliary_data: Option<csl::AuxiliaryData>,
     pub expected_auxiliary_data_hash: Option<csl::AuxiliaryDataHash>,
     pub actual_auxiliary_data_hash: Option<csl::AuxiliaryDataHash>,
 }
 
 
-impl AuxiliaryDataValidationContext {
+impl AuxiliaryDataValidator {
     pub fn new(tx: &csl::Transaction) -> Self {
         let auxiliary_data: Option<csl::AuxiliaryData> =  tx.auxiliary_data();
         let actual_auxiliary_data_hash = tx.body().auxiliary_data_hash();

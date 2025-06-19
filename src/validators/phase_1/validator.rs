@@ -4,13 +4,13 @@ use crate::validators::phase_1::errors::ValidationResult;
 use crate::validators::phase_1::helpers::csl_credential_to_local_credential;
 use crate::validators::phase_1::input_contexts::ValidationInputContext;
 use crate::validators::phase_1::validation::{
-    BalanceValidationContext, 
-    CollateralValidationContext, 
-    AuxiliaryDataValidationContext,
-    RegistrationValidationContext,
-    WitnessValidationContext,
+    BalanceValidator,
+    CollateralValidator,
+    AuxiliaryDataValidator,
+    RegistrationValidator,
+    WitnessValidator,
 };
-use crate::validators::phase_1::validation::fee::FeeValidationContext;
+use crate::validators::phase_1::validation::fee::FeeValidator;
 use crate::validators::phase_1::NecessaryInputData;
 use crate::validators::phase_1::common::{GovernanceActionId, GovernanceActionType, NetworkType};
 use crate::common::TxInput;
@@ -394,33 +394,33 @@ pub fn validate_transaction(
     let mut overall_result = ValidationResult::new(vec![], vec![]);
     
     // 1. Balance validation
-    let balance_context = BalanceValidationContext::new(&csl_tx, &validation_context);
+    let balance_context = BalanceValidator::new(&csl_tx, &validation_context);
     let balance_result = balance_context.validate();
     overall_result.append(balance_result);
     
     // 2. Fee validation
     let tx_size = tx_hex.len() / 2; // Convert hex string length to bytes
-    let fee_context = FeeValidationContext::new(tx_size, &csl_tx, &validation_context)?;
+    let fee_context = FeeValidator::new(tx_size, &csl_tx, &validation_context)?;
     let fee_result = fee_context.validate();
     overall_result.append(fee_result);
     
     // 3. Witness validation
-    let witness_context = WitnessValidationContext::new(&csl_tx, &validation_context);
+    let witness_context = WitnessValidator::new(&csl_tx, &validation_context);
     let witness_result = witness_context.validate();
     overall_result.append(witness_result);
     
     // 4. Collateral validation
-    let collateral_context = CollateralValidationContext::new(&csl_tx, &validation_context);
+    let collateral_context = CollateralValidator::new(&csl_tx, &validation_context);
     let collateral_result = collateral_context.validate();
     overall_result.append(collateral_result);
     
     // 5. Auxiliary data validation
-    let auxiliary_context = AuxiliaryDataValidationContext::new(&csl_tx);
+    let auxiliary_context = AuxiliaryDataValidator::new(&csl_tx);
     let auxiliary_result = auxiliary_context.validate();
     overall_result.append(auxiliary_result);
     
     // 6. Registration validation (certificates)
-    let registration_context = RegistrationValidationContext::new(&tx_body, &validation_context);
+    let registration_context = RegistrationValidator::new(&tx_body, &validation_context);
     let registration_result = registration_context.validate();
     overall_result.append(registration_result);
     

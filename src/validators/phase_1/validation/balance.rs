@@ -85,7 +85,7 @@ impl OutputsDecomposition {
     }
 }
 
-pub struct BalanceValidationContext<'a> {
+pub struct BalanceValidator<'a> {
     pub inputs: InputsDecomposition,
     pub outputs: OutputsDecomposition,
 
@@ -96,7 +96,7 @@ pub struct BalanceValidationContext<'a> {
     pub treasury_value: Option<u64>,
 }
 
-impl<'a> BalanceValidationContext<'a> {
+impl<'a> BalanceValidator<'a> {
     pub fn new(tx: &csl::Transaction, validation_input_context: &'a ValidationInputContext) -> Self {
         let total_inputs = calculate_total_inputs(tx, validation_input_context);
         let (refunds, cert_deposits) = calculate_deposits_and_refunds(tx, validation_input_context);

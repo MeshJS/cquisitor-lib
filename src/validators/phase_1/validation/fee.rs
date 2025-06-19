@@ -10,13 +10,13 @@ use crate::{
 };
 use cardano_serialization_lib as csl;
 
-pub struct FeeValidationContext {
+pub struct FeeValidator {
     pub fee_decomposition: FeeDecomposition,
     pub actual_fee: u64,
     pub expected_fee: u64,
 }
 
-impl FeeValidationContext {
+impl FeeValidator {
     pub fn new<'a>(
         tx_size: usize,
         tx: &csl::Transaction,
