@@ -26,12 +26,12 @@
   "keywords": [],
   "author": "Evgenii Lisitskii",
   "license": "MIT",
-  "dependencies": {},
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "ts-node": "^10.9.2",
+    "@emurgo/cardano-serialization-lib-browser": "13.2.1",
     "eslint": "^8.0.0",
+    "json-schema-to-typescript": "^15.0.4",
     "rimraf": "^5.0.0",
-    "@emurgo/cardano-serialization-lib-browser": "13.2.1"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
   }
 }

@@ -62,7 +62,7 @@ pub fn normalize_script_ref(
             .map_err(|e| format!("Failed to encode script ref bytes: {}", e))?;
         let write_buffer = encoder.writer().clone();
         csl::ScriptRef::from_bytes(write_buffer)
-            .map_err(|e| format!("Failed to decode script ref hex: {}", e))
+            .map_err(|_| "Failed to decode script ref hex".to_string())
     } else {
         csl::ScriptRef::from_hex(&script_ref).map_err(|e| {
             format!(

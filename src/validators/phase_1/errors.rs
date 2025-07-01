@@ -410,6 +410,9 @@ pub enum Phase1Error {
         /// The actual script data hash
         provided_hash: Option<String>,
     },
+    ReferenceInputOverlapsWithInput {
+        input: TxInput,
+    },
 }
 
 impl Phase1Error {
@@ -857,6 +860,9 @@ impl Phase1Error {
             }
             Self::ScriptDataHashMismatch { expected_hash, provided_hash } => {
                 format!("Script data hash mismatch. Expected: {}, Found: {}", expected_hash.as_ref().unwrap_or(&"None".to_string()), provided_hash.as_ref().unwrap_or(&"None".to_string()))
+            },
+            Self::ReferenceInputOverlapsWithInput { input } => {
+                format!("Reference input overlaps with input: {:?}", input)
             },
         }
     }

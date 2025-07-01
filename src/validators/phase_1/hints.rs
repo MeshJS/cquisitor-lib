@@ -237,6 +237,9 @@ pub fn get_error_hint(error: &Phase1Error) -> Option<String> {
         Phase1Error::ScriptDataHashMismatch { .. } => Some(
             "Ensure the script data hash matches the actual hash of the redeemers and datums. Recalculate the hash if necessary.".to_string()
         ),
+        Phase1Error::ReferenceInputOverlapsWithInput { .. } => Some(
+            "Remove the reference input that overlaps with the input. Reference inputs are not allowed to overlap with inputs.".to_string()
+        ),
     }
 }
 

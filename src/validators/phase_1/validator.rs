@@ -437,9 +437,9 @@ pub fn validate_transaction(
 #[wasm_bindgen]
 pub fn validate_transaction_js(
     tx_hex: &str,
-    validation_context: JsValue,
+    validation_context: &str,
 ) -> Result<String, JsError> {
-    let validation_context = from_js_value(&validation_context).map_err(|e| JsError::new(&e.to_string()))?;
+    let validation_context = serde_json::from_str(validation_context).map_err(|e| JsError::new(&e.to_string()))?;
     let validation_result = validate_transaction(tx_hex, validation_context)?;
     let json_result = serde_json::to_string(&validation_result).map_err(|e| JsError::new(&e.to_string()))?;
     Ok(json_result)
