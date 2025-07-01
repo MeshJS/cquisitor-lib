@@ -10,9 +10,24 @@ pub struct Value {
     pub coins: i128,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone,Hash, Serialize, Deserialize, JsonSchema)]
 pub struct MultiAsset {
     assets: Vec<ValidatorAsset>,
+}
+
+impl Eq for MultiAsset {}
+impl PartialEq for MultiAsset {
+    fn eq(&self, other: &Self) -> bool {
+        if self.assets.len() != other.assets.len() {
+            return false;
+        }
+        for asset in &self.assets {
+            if !other.assets.contains(asset) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -28,7 +43,7 @@ impl MultiAsset {
         }
     }
 
-    pub fn new_from_csl_multiasset(multiasset: &csl::MultiAsset) -> Self {
+    pub fn new_from_csl_multiasset(multiasset: &csl::MultiAsset, abs: bool) -> Self {
         let mut new_multiasset = MultiAsset::new();
         let keys = multiasset.keys();
         for i in 0..keys.len() {
@@ -41,8 +56,13 @@ impl MultiAsset {
                     let quantity = assets.get(&asset_name)
                         .map(|q| q.to_string().parse::<i128>().unwrap())
                         .unwrap_or(0);
-                    let unit = format!("{}{}", key.to_hex(), asset_name.to_hex());
-                    new_multiasset.add_asset(unit, quantity);
+                    let unit = format!("{}{}", key.to_hex(), hex::encode(asset_name.name()));
+                    if abs {
+                        new_multiasset.add_asset(unit, quantity.abs());
+                    } else {
+                        new_multiasset.add_asset(unit, quantity);
+                    }
+
                 }
             }
         }
@@ -137,23 +157,10 @@ impl Value {
     pub fn new_from_csl_value(value: &csl::Value) -> Self {
         let mut new_value = Value::zero();
         if let Some(multiasset) = value.multiasset() {
-            let keys = multiasset.keys();
-            for i in 0..keys.len() {
-                let key = keys.get(i);
-                let assets = multiasset.get(&key);
-                if let Some(assets) = assets {
-                    let asset_keys = assets.keys();
-                    for j in 0..asset_keys.len() {
-                        let asset_name = asset_keys.get(j);
-                        let quantity = assets.get(&asset_name)
-                            .map(|q| q.to_string().parse::<i128>().unwrap())
-                            .unwrap_or(0);
-                        let unit = format!("{}{}", key.to_hex(), asset_name.to_hex());
-                        new_value.set_asset(unit, quantity);
-                    }
-                }
-            }
+            new_value.assets = MultiAsset::new_from_csl_multiasset(&multiasset, false);
         }
+        let coins = value.coin().to_string().parse::<i128>().unwrap_or(0);
+        new_value.coins = coins;
         new_value
     }
 

@@ -1,6 +1,7 @@
 pub mod common;
 pub mod converter;
 pub mod errors;
+pub mod hints;
 pub mod protocol_params;
 pub mod validator;
 pub mod value;

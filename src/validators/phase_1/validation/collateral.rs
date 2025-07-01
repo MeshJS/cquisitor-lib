@@ -27,27 +27,27 @@ pub struct CollateralValidator {
 }
 
 impl CollateralValidator {
-    pub fn new(tx: &csl::Transaction, validation_input_context: &ValidationInputContext) -> Self {
-        let total_input = calculate_total_input(tx, validation_input_context);
-        let collateral_return = calculate_total_output(tx);
-        let total_collateral = get_total_collateral(tx);
+    pub fn new(tx_body: &csl::TransactionBody, tx_witness_set: &csl::TransactionWitnessSet, validation_input_context: &ValidationInputContext) -> Self {
+        let total_input = calculate_total_input(tx_body, validation_input_context);
+        let collateral_return = calculate_total_output(tx_body);
+        let total_collateral = get_total_collateral(tx_body);
         let actual_collateral = if let Some(collateral_return) = &collateral_return {
             &total_input - &collateral_return
         } else {
             total_input.clone()
         };
         let estimated_minimal_collateral =
-            calculate_estimated_minimal_collateral(tx, validation_input_context);
-        let mut invalid_inputs = find_script_payment_inputs(tx, validation_input_context);
-        invalid_inputs.extend(find_reward_address_inputs(tx, validation_input_context));
-        invalid_inputs.extend(find_non_ada_inputs(tx, validation_input_context));
+            calculate_estimated_minimal_collateral(tx_body, validation_input_context);
+        let mut invalid_inputs = find_script_payment_inputs(tx_body, validation_input_context);
+        invalid_inputs.extend(find_reward_address_inputs(tx_body, validation_input_context));
+        invalid_inputs.extend(find_non_ada_inputs(tx_body, validation_input_context));
 
-        let actual_number_of_inputs = tx.body().inputs().len() as u32;
+        let actual_number_of_inputs = tx_body.inputs().len() as u32;
         let max_number_of_inputs = validation_input_context
             .protocol_parameters
             .max_collateral_inputs;
-        let need_collateral = is_need_collateral(tx);
-        let min_ada_for_collateral_return = calculate_min_ada_for_collateral_return(tx, validation_input_context);
+        let need_collateral = is_need_collateral(tx_witness_set);
+        let min_ada_for_collateral_return = calculate_min_ada_for_collateral_return(tx_body, validation_input_context);
         Self {
             invalid_inputs,
             total_input,
@@ -144,14 +144,16 @@ impl CollateralValidator {
         }
 
         if let Some(min_ada_for_collateral_return) = self.min_ada_for_collateral_return {
-            if self.actual_collateral.coins < min_ada_for_collateral_return {
-                errors.push(ValidationError::new(
-                    Phase1Error::CollateralReturnTooSmall {
-                        output_amount: self.actual_collateral.coins,
-                        min_amount: min_ada_for_collateral_return,
-                    },
-                    "transaction.body.collateral_return".to_string(),
-                ));
+            if let Some(collateral_return) = &self.collateral_return {
+                if collateral_return.coins < min_ada_for_collateral_return {
+                    errors.push(ValidationError::new(
+                        Phase1Error::CollateralReturnTooSmall {
+                            output_amount: collateral_return.coins,
+                            min_amount: min_ada_for_collateral_return,
+                        },
+                        "transaction.body.collateral_return".to_string(),
+                    ));
+                }
             }
         }
 
@@ -177,10 +179,10 @@ impl CollateralValidator {
 }
 
 fn calculate_total_input(
-    tx: &csl::Transaction,
+    tx_body: &csl::TransactionBody,
     validation_input_context: &ValidationInputContext,
 ) -> Value {
-    tx.body()
+    tx_body
         .collateral()
         .unwrap_or(csl::TransactionInputs::new())
         .into_iter()
@@ -196,16 +198,16 @@ fn calculate_total_input(
         .fold(Value::new_from_coins(0), |acc, value| acc + value)
 }
 
-fn calculate_total_output(tx: &csl::Transaction) -> Option<Value> {
-    if let Some(collateral_return) = tx.body().collateral_return() {
+fn calculate_total_output(tx_body: &csl::TransactionBody) -> Option<Value> {
+    if let Some(collateral_return) = tx_body.collateral_return() {
         Some(Value::new_from_csl_value(&collateral_return.amount()))
     } else {
         None
     }
 }
 
-fn get_total_collateral(tx: &csl::Transaction) -> Option<i128> {
-    if let Some(total_collateral) = tx.body().total_collateral() {
+fn get_total_collateral(tx_body: &csl::TransactionBody) -> Option<i128> {
+    if let Some(total_collateral) = tx_body.total_collateral() {
         Some(total_collateral.to_str().parse::<i128>().unwrap_or(0))
     } else {
         None
@@ -213,10 +215,10 @@ fn get_total_collateral(tx: &csl::Transaction) -> Option<i128> {
 }
 
 fn calculate_estimated_minimal_collateral(
-    tx: &csl::Transaction,
+    tx_body: &csl::TransactionBody,
     validation_input_context: &ValidationInputContext,
 ) -> i128 {
-    let tx_fee: i128 = tx.body().fee().to_str().parse::<i128>().unwrap_or(0);
+    let tx_fee: i128 = tx_body.fee().to_str().parse::<i128>().unwrap_or(0);
     let collateral_percentage: i128 = validation_input_context
         .protocol_parameters
         .collateral_percentage
@@ -225,19 +227,18 @@ fn calculate_estimated_minimal_collateral(
     collateral_amount
 }
 
-fn is_need_collateral(tx: &csl::Transaction) -> bool {
-    let redeemers_count = tx
-        .witness_set()
+fn is_need_collateral(tx_witness_set: &csl::TransactionWitnessSet) -> bool {
+    let redeemers_count = tx_witness_set
         .redeemers()
         .map_or(0, |redeemers| redeemers.len());
     redeemers_count > 0
 }
 
 fn find_script_payment_inputs(
-    tx: &csl::Transaction,
+    tx_body: &csl::TransactionBody,
     validation_input_context: &ValidationInputContext,
 ) -> Vec<(csl::TransactionInput, u32, InvalidInputType)> {
-    tx.body()
+    tx_body
         .collateral()
         .unwrap_or(csl::TransactionInputs::new())
         .into_iter()
@@ -268,10 +269,10 @@ fn find_script_payment_inputs(
 }
 
 fn find_reward_address_inputs(
-    tx: &csl::Transaction,
+    tx_body: &csl::TransactionBody,
     validation_input_context: &ValidationInputContext,
 ) -> Vec<(csl::TransactionInput, u32, InvalidInputType)> {
-    tx.body()
+    tx_body
         .collateral()
         .unwrap_or(csl::TransactionInputs::new())
         .into_iter()
@@ -298,10 +299,10 @@ fn find_reward_address_inputs(
 }
 
 fn find_non_ada_inputs(
-    tx: &csl::Transaction,
+    tx_body: &csl::TransactionBody,
     validation_input_context: &ValidationInputContext,
 ) -> Vec<(csl::TransactionInput, u32, InvalidInputType)> {
-    tx.body()
+    tx_body
         .collateral()
         .unwrap_or(csl::TransactionInputs::new())
         .into_iter()
@@ -325,8 +326,8 @@ fn find_non_ada_inputs(
         .collect()
 }
 
-fn calculate_min_ada_for_collateral_return(tx: &csl::Transaction, validation_input_context: &ValidationInputContext) -> Option<i128> {
-    if let Some(collateral_return) = tx.body().collateral_return() {
+fn calculate_min_ada_for_collateral_return(tx_body: &csl::TransactionBody, validation_input_context: &ValidationInputContext) -> Option<i128> {
+    if let Some(collateral_return) = tx_body.collateral_return() {
         let coins_per_byte = validation_input_context.protocol_parameters.ada_per_utxo_byte;
         let data_cost = csl::DataCost::new_coins_per_byte(&BigNum::from(coins_per_byte));
         let min_ada = csl::min_ada_for_output(&collateral_return, &data_cost);

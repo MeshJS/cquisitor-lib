@@ -3,7 +3,7 @@ use schemars::JsonSchema;
 use std::convert::TryFrom;
 use cardano_serialization_lib as csl;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct Asset {
     pub unit: String,
@@ -17,7 +17,7 @@ pub struct TxInput {
     pub tx_hash: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct TxOutput {
     pub address: String,
@@ -38,7 +38,7 @@ impl TxOutput {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UTxO {
     pub input: TxInput,
@@ -49,9 +49,9 @@ pub struct UTxO {
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CostModels {
-    pub(crate) plutus_v1: Option<Vec<i64>>,
-    pub(crate) plutus_v2:  Option<Vec<i64>>,
-    pub(crate) plutus_v3: Option<Vec<i64>>,
+    pub(crate) plutus_v1: Option<Vec<u64>>,
+    pub(crate) plutus_v2:  Option<Vec<u64>>,
+    pub(crate) plutus_v3: Option<Vec<u64>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]

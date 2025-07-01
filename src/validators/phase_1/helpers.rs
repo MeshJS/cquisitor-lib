@@ -46,3 +46,30 @@ pub fn csl_credential_to_local_credential(credential: &csl::Credential) -> Local
         }
     }
 }
+
+pub fn normalize_script_ref(
+    script_ref: &String,
+) -> Result<csl::ScriptRef, String> {
+    if script_ref.starts_with("82") {
+        let bytes = hex::decode(script_ref.clone())
+            .map_err(|e| format!("Failed to decode script ref hex: {}", e))?;
+        let mut encoder = pallas_codec::minicbor::Encoder::new(Vec::new());
+        encoder
+            .tag(pallas_codec::minicbor::data::Tag::new(24))
+            .map_err(|e| "Failed to write tag")?;
+        encoder
+            .bytes(&bytes)
+            .map_err(|e| format!("Failed to encode script ref bytes: {}", e))?;
+        let write_buffer = encoder.writer().clone();
+        csl::ScriptRef::from_bytes(write_buffer)
+            .map_err(|e| format!("Failed to decode script ref hex: {}", e))
+    } else {
+        csl::ScriptRef::from_hex(&script_ref).map_err(|e| {
+            format!(
+                "Failed to parse script ref: {:?} - with ref: {}",
+                e,
+                script_ref
+            )
+        })
+    }
+}

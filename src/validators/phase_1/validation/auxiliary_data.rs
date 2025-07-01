@@ -9,9 +9,8 @@ pub struct AuxiliaryDataValidator {
 
 
 impl AuxiliaryDataValidator {
-    pub fn new(tx: &csl::Transaction) -> Self {
-        let auxiliary_data: Option<csl::AuxiliaryData> =  tx.auxiliary_data();
-        let actual_auxiliary_data_hash = tx.body().auxiliary_data_hash();
+    pub fn new(tx_body: &csl::TransactionBody, auxiliary_data: Option<csl::AuxiliaryData>) -> Self {
+        let actual_auxiliary_data_hash = tx_body.auxiliary_data_hash();
         let expected_auxiliary_data_hash = if let Some(auxiliary_data) = &auxiliary_data {
             Some(csl::hash_auxiliary_data(&auxiliary_data))
         } else {

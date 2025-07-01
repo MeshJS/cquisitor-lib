@@ -12,9 +12,9 @@ use crate::common::{Asset, CostModels, TxOutput, UTxO};
 
 pub fn to_pallas_cost_modesl(cost_models: &CostModels) -> pallas_primitives::conway::CostModels {
     pallas_primitives::conway::CostModels {
-        plutus_v1: cost_models.plutus_v1.clone(),
-        plutus_v2: cost_models.plutus_v2.clone(),
-        plutus_v3: cost_models.plutus_v3.clone(),
+        plutus_v1: cost_models.plutus_v1.clone().map(|v| v.into_iter().map(|i| i as i64).collect::<Vec<i64>>()),
+        plutus_v2: cost_models.plutus_v2.clone().map(|v| v.into_iter().map(|i| i as i64).collect::<Vec<i64>>()),
+        plutus_v3: cost_models.plutus_v3.clone().map(|v| v.into_iter().map(|i| i as i64).collect::<Vec<i64>>()),
     }
 }
 

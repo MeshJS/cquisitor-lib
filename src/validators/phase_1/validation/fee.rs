@@ -19,12 +19,12 @@ pub struct FeeValidator {
 impl FeeValidator {
     pub fn new<'a>(
         tx_size: usize,
-        tx: &csl::Transaction,
+        tx_body: &csl::TransactionBody,
+        tx_witness_set: &csl::TransactionWitnessSet,
         validation_input_context: &'a ValidationInputContext,
     ) -> Result<Self, JsError> {
-        let utxos = collect_utxos(tx, validation_input_context);
-        let redeemers = tx
-            .witness_set()
+        let utxos = collect_utxos(tx_body, validation_input_context);
+        let redeemers = tx_witness_set  
             .redeemers()
             .unwrap_or(csl::Redeemers::new());
         let total_reference_scripts_size = utxos
@@ -83,7 +83,7 @@ impl FeeValidator {
         };
 
         let expected_fee = tx_size_fee + ref_script_fee + execution_units_fee;
-        let actual_fee = tx.body().fee().into();
+        let actual_fee = tx_body.fee().into();
 
         Ok(Self {
             fee_decomposition: fee_decomposition,
@@ -124,17 +124,16 @@ impl FeeValidator {
 }
 
 fn collect_utxos<'a>(
-    tx: &csl::Transaction,
+    tx_body: &csl::TransactionBody,
     validation_input_context: &'a ValidationInputContext,
 ) -> Vec<&'a UtxoInputContext> {
-    let body: csl::TransactionBody = tx.body();
-    let inputs = body.inputs();
+    let inputs = tx_body.inputs();
     let mut input_utxos: Vec<&'a UtxoInputContext> = inputs
         .into_iter()
         .map(|input| validation_input_context.find_utxo(input.to_hex(), input.index()))
         .filter_map(|utxo| utxo)
         .collect();
-    let ref_utoxs = body.reference_inputs();
+    let ref_utoxs = tx_body.reference_inputs();
     let ref_utoxs: Vec<&'a UtxoInputContext> = ref_utoxs
         .unwrap_or(csl::TransactionInputs::new())
         .into_iter()

@@ -39,6 +39,8 @@ pub struct AccountInputContext {
     pub bech32_address: String,
     pub is_registered: bool,
     pub payed_deposit: Option<u64>,
+    pub delegated_to_drep: Option<String>,
+    pub delegated_to_pool: Option<String>,
     pub balance: Option<u64>,
 }
 
@@ -50,7 +52,7 @@ pub struct PoolInputContext {
     pub retirement_epoch: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UtxoInputContext {
     pub utxo: UTxO,

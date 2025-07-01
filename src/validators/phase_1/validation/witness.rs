@@ -1,34 +1,41 @@
-use crate::validators::phase_1::{
-    common::LocalCredential,
-    errors::{Phase1Error, ValidationError, ValidationResult},
-    helpers::string_to_csl_address,
-    ValidationInputContext,
+use crate::{
+    js_error::JsError,
+    validators::phase_1::{
+        errors::{Phase1Error, ValidationError, ValidationResult},
+        helpers::{normalize_script_ref, string_to_csl_address},
+        validation::NativeScriptExecutor,
+        ValidationInputContext,
+    },
 };
-use cardano_serialization_lib as csl;
+use cardano_serialization_lib::{self as csl, Redeemers};
 use std::collections::{HashMap, HashSet};
+use std::ptr::hash;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WitnessRequirement {
-    /// Verification key signature required
-    VKeySignature(csl::Ed25519KeyHash),
-    /// Native script required
-    NativeScript(csl::ScriptHash),
-    /// Plutus script required
-    PlutusScript(csl::ScriptHash),
-    /// Redeemer required
-    Redeemer { tag: csl::RedeemerTag, index: u32 },
-    /// Datum required
-    Datum(csl::DataHash),
-    /// Unknown script type (not found in provided witnesses)
-    UnknownScript(csl::ScriptHash),
+pub enum ScriptType {
+    NativeScript,
+    PlutusScript,
+    UnknownScript,
 }
 
 #[derive(Debug, Clone)]
 pub enum WitnessSource {
     /// Witness provided in witness set
-    WitnessSet,
+    WitnessSet(u32),
     /// Script available through reference input
-    ReferenceInput(csl::TransactionInput),
+    ReferenceInput(csl::TransactionInput, u32),
+    Input(csl::TransactionInput, u32),
+}
+
+impl WitnessSource {
+    pub fn get_location(&self, entity_name: &str) -> String {
+        match self {
+            WitnessSource::WitnessSet(i) => {
+                format!("transaction.witness_set.{}.{}", entity_name, i)
+            }
+            WitnessSource::ReferenceInput(_, i) => format!("transaction.reference_inputs.{}", i),
+            WitnessSource::Input(_, i) => format!("transaction.inputs.{}", i),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -74,12 +81,14 @@ pub struct WitnessValidator<'a> {
     /// Required unknown script witnesses
     pub required_unknown_script_witnesses: Vec<RequiredScriptWitness>,
     /// Set of provided VKey witnesses
-    pub provided_vkey_witnesses: HashSet<csl::Ed25519KeyHash>,
+    pub provided_vkey_witnesses: HashMap<csl::Ed25519KeyHash, u32>,
     /// Map of native script hashes to their sources
     pub native_script_sources: HashMap<csl::ScriptHash, WitnessSource>,
+    pub provided_native_scripts: HashMap<csl::ScriptHash, csl::NativeScript>,
     pub native_scripts_signature_candidates: HashSet<csl::Ed25519KeyHash>,
     /// Map of plutus script hashes to their sources
     pub plutus_script_sources: HashMap<csl::ScriptHash, WitnessSource>,
+    pub plutus_script_versions: HashMap<csl::ScriptHash, csl::Language>,
     /// Map of datum hashes to their sources
     pub datum_sources: HashMap<csl::DataHash, WitnessSource>,
     pub output_datums_hashes: HashSet<csl::DataHash>,
@@ -87,13 +96,22 @@ pub struct WitnessValidator<'a> {
     pub provided_redeemers: HashSet<(csl::RedeemerTag, u32)>,
     /// Validation context
     pub validation_input_context: &'a ValidationInputContext,
+
+    pub invalid_signatures: HashMap<csl::Ed25519KeyHash, u32>,
+    pub valid_signatures: HashMap<csl::Ed25519KeyHash, u32>,
+    pub invalid_native_scripts: HashMap<csl::ScriptHash, WitnessSource>,
+    pub used_plutus_versions: HashSet<csl::LanguageKind>,
+    pub expected_script_data_hash: Option<String>,
+    pub provided_script_data_hash: Option<String>,
 }
 
 impl<'a> WitnessValidator<'a> {
     pub fn new(
-        tx: &csl::Transaction,
+        tx_body: &csl::TransactionBody,
+        tx_witness_set: &csl::TransactionWitnessSet,
+        tx_hash: &csl::TransactionHash,
         validation_input_context: &'a ValidationInputContext,
-    ) -> Self {
+    ) -> Result<Self, JsError> {
         let mut context = Self {
             required_vkey_witnesses: Vec::new(),
             required_native_script_witnesses: Vec::new(),
@@ -101,32 +119,101 @@ impl<'a> WitnessValidator<'a> {
             required_redeemer_witnesses: Vec::new(),
             required_datum_witnesses: Vec::new(),
             required_unknown_script_witnesses: Vec::new(),
-            provided_vkey_witnesses: HashSet::new(),
+            provided_vkey_witnesses: HashMap::new(),
             native_script_sources: HashMap::new(),
+            provided_native_scripts: HashMap::new(),
             native_scripts_signature_candidates: HashSet::new(),
             plutus_script_sources: HashMap::new(),
+            plutus_script_versions: HashMap::new(),
             datum_sources: HashMap::new(),
             output_datums_hashes: HashSet::new(),
             provided_redeemers: HashSet::new(),
             validation_input_context,
+            invalid_signatures: HashMap::new(),
+            valid_signatures: HashMap::new(),
+            invalid_native_scripts: HashMap::new(),
+            used_plutus_versions: HashSet::new(),
+            provided_script_data_hash: None,
+            expected_script_data_hash: None,
         };
 
         // Collect all provided witnesses
-        context.collect_provided_witnesses(tx);
+        context.collect_provided_witnesses(tx_body, tx_witness_set, tx_hash).map_err(
+            |e| JsError::new(&format!("Failed to collect provided witnesses: {}", e)))?;
 
         // Collect all required witnesses
-        context.collect_required_witnesses(tx);
+        context.collect_required_witnesses(tx_body);
 
         // Fill native_scripts_signature_candidates
-        context.collect_native_scripts_signature_candidates(tx);
+        context.collect_native_scripts_signature_candidates();
 
-        context.collect_output_datums_hashes(tx);
+        context.collect_output_datums_hashes(tx_body);
 
-        context
+        context.collect_invalid_native_scripts().map_err(|e| {
+            JsError::new(&format!("Failed to collect invalid native scripts: {}", e))
+        })?;
+
+        context.collect_used_plutus_versions();
+
+        context.collect_script_data_hash(tx_body, tx_witness_set)
+            .map_err(|e| JsError::new(&format!("Failed to collect script data hash: {}", e)))?;
+
+        Ok(context)
     }
 
-    fn collect_output_datums_hashes(&mut self, tx: &csl::Transaction) {
-        let outputs = tx.body().outputs();
+    fn collect_script_data_hash(
+        &mut self,
+        tx_body: &csl::TransactionBody,
+        tx_witness_set: &csl::TransactionWitnessSet,
+    ) -> Result<(), String> {
+        let script_data_hash = self.calulucate_actual_script_data_hash(tx_witness_set)?;
+        self.expected_script_data_hash = script_data_hash;
+
+        let provided_script_data_hash = tx_body.script_data_hash();
+        self.provided_script_data_hash = provided_script_data_hash.map(|hash| hash.to_hex());
+
+        Ok(())
+    }
+
+    fn collect_used_plutus_versions(&mut self) {
+        for witness in &self.required_plutus_script_witnesses {
+            if let Some(plutus_script_version) =
+                self.plutus_script_versions.get(&witness.script_hash)
+            {
+                self.used_plutus_versions
+                    .insert(plutus_script_version.kind());
+            }
+        }
+    }
+
+    fn collect_invalid_native_scripts(&mut self) -> Result<(), String> {
+        let signatures = self.provided_vkey_witnesses.keys().cloned().collect();
+        let slot = self.validation_input_context.slot;
+        for (i, required_native_script_witness) in
+            self.required_native_script_witnesses.iter().enumerate()
+        {
+            let script_hash = &required_native_script_witness.script_hash;
+            if let Some(native_script) = self.provided_native_scripts.get(&script_hash) {
+                let executor = NativeScriptExecutor::new(native_script, &signatures, slot);
+                match executor.execute() {
+                    Ok(result) => {
+                        if !result {
+                            let source = self.native_script_sources.get(script_hash).unwrap();
+                            self.invalid_native_scripts
+                                .insert(script_hash.clone(), source.clone());
+                        }
+                    }
+                    Err(e) => {
+                        return Err(format!("Failed to execute native script: {}", e));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_output_datums_hashes(&mut self, tx_body: &csl::TransactionBody) {
+        let outputs = tx_body.outputs();
         for i in 0..outputs.len() {
             let output = outputs.get(i);
             if let Some(datum_hash) = output.data_hash() {
@@ -135,15 +222,27 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_provided_witnesses(&mut self, tx: &csl::Transaction) {
-        let witness_set = tx.witness_set();
+    fn collect_provided_witnesses(
+        &mut self,
+        tx_body: &csl::TransactionBody,
+        tx_witness_set: &csl::TransactionWitnessSet,
+        tx_hash: &csl::TransactionHash,
+    ) -> Result<(), String> {
+        let witness_set = tx_witness_set;
 
         // VKey witnesses
         if let Some(vkey_witnesses) = witness_set.vkeys() {
             for i in 0..vkey_witnesses.len() {
                 let vkey_witness = vkey_witnesses.get(i);
-                let key_hash = vkey_witness.vkey().public_key().hash();
-                self.provided_vkey_witnesses.insert(key_hash);
+                let public_key = vkey_witness.vkey().public_key();
+                let key_hash = public_key.hash();
+                self.provided_vkey_witnesses.insert(key_hash.clone(), i as u32);
+
+                if !public_key.verify(&tx_hash.to_bytes(), &vkey_witness.signature()) {
+                    self.invalid_signatures.insert(key_hash.clone(), i as u32);
+                } else {
+                    self.valid_signatures.insert(key_hash.clone(), i as u32);
+                }
             }
         }
 
@@ -152,8 +251,10 @@ impl<'a> WitnessValidator<'a> {
             for i in 0..native_scripts.len() {
                 let script = native_scripts.get(i);
                 let script_hash = script.hash();
+                self.provided_native_scripts
+                    .insert(script_hash.clone(), script.clone());
                 self.native_script_sources
-                    .insert(script_hash, WitnessSource::WitnessSet);
+                    .insert(script_hash, WitnessSource::WitnessSet(i as u32));
             }
         }
 
@@ -163,7 +264,9 @@ impl<'a> WitnessValidator<'a> {
                 let script = plutus_scripts.get(i);
                 let script_hash = script.hash();
                 self.plutus_script_sources
-                    .insert(script_hash, WitnessSource::WitnessSet);
+                    .insert(script_hash.clone(), WitnessSource::WitnessSet(i as u32));
+                self.plutus_script_versions
+                    .insert(script_hash.clone(), script.language_version());
             }
         }
 
@@ -173,7 +276,7 @@ impl<'a> WitnessValidator<'a> {
                 let datum = plutus_data.get(i);
                 let datum_hash = csl::hash_plutus_data(&datum);
                 self.datum_sources
-                    .insert(datum_hash, WitnessSource::WitnessSet);
+                    .insert(datum_hash, WitnessSource::WitnessSet(i as u32));
             }
         }
 
@@ -188,40 +291,54 @@ impl<'a> WitnessValidator<'a> {
         }
 
         // Collect scripts and datums from reference inputs
-        let ref_inputs = tx
-            .body()
+        let ref_inputs = tx_body
             .reference_inputs()
             .unwrap_or(csl::TransactionInputs::new());
-        let inputs = tx.body().inputs();
-        let all_inputs = inputs.into_iter().chain(ref_inputs.into_iter());
+        let inputs = tx_body.inputs();
 
-        for input in all_inputs {
+        self.collect_scripts_and_datums_from_any_inputs(&inputs, false)?;
+        self.collect_scripts_and_datums_from_any_inputs(&ref_inputs, true)?;
+
+        // Collect scripts and datums from inputs
+        self.collect_scripts_and_datums_from_any_inputs(&inputs, false)?;
+        Ok(())
+    }
+
+    fn collect_scripts_and_datums_from_any_inputs(
+        &mut self,
+        inputs: &csl::TransactionInputs,
+        is_reference_inputs: bool,
+    ) -> Result<(), String> {
+        for (i, input) in inputs.into_iter().enumerate() {
             if let Some(utxo) = self
                 .validation_input_context
                 .find_utxo(input.transaction_id().to_hex(), input.index())
             {
+                let witness_source = if is_reference_inputs {
+                    WitnessSource::ReferenceInput(input.clone(), i as u32)
+                } else {
+                    WitnessSource::Input(input.clone(), i as u32)
+                };
+
                 // Check script_ref
                 if let Some(script_ref_hex) = &utxo.utxo.output.script_ref {
-                    if let Ok(script_ref_bytes) = hex::decode(script_ref_hex) {
-                        if let Ok(script_ref) = csl::ScriptRef::from_bytes(script_ref_bytes) {
-                            // ScriptRef contains either NativeScript or PlutusScript
-                            // Try to get as NativeScript
-                            if let Some(native_script) = script_ref.native_script() {
-                                let script_hash = native_script.hash();
-                                self.native_script_sources.insert(
-                                    script_hash,
-                                    WitnessSource::ReferenceInput(input.clone()),
-                                );
-                            }
-                            // Try to get as PlutusScript
-                            else if let Some(plutus_script) = script_ref.plutus_script() {
-                                let script_hash = plutus_script.hash();
-                                self.plutus_script_sources.insert(
-                                    script_hash,
-                                    WitnessSource::ReferenceInput(input.clone()),
-                                );
-                            }
-                        }
+                    let script_ref = normalize_script_ref(script_ref_hex)?;
+                    // ScriptRef contains either NativeScript or PlutusScript
+                    // Try to get as NativeScript
+                    if let Some(native_script) = script_ref.native_script() {
+                        let script_hash = native_script.hash();
+                        self.provided_native_scripts
+                            .insert(script_hash.clone(), native_script.clone());
+                        self.native_script_sources
+                            .insert(script_hash, witness_source.clone());
+                    }
+                    // Try to get as PlutusScript
+                    else if let Some(plutus_script) = script_ref.plutus_script() {
+                        let script_hash = plutus_script.hash();
+                        self.plutus_script_sources
+                            .insert(script_hash.clone(), witness_source.clone());
+                        self.plutus_script_versions
+                            .insert(script_hash.clone(), plutus_script.language_version());
                     }
                 }
 
@@ -231,22 +348,23 @@ impl<'a> WitnessValidator<'a> {
                         if let Ok(datum) = csl::PlutusData::from_bytes(datum_bytes) {
                             let datum_hash = csl::hash_plutus_data(&datum);
                             self.datum_sources
-                                .insert(datum_hash, WitnessSource::ReferenceInput(input.clone()));
+                                .insert(datum_hash, witness_source.clone());
                         }
                     }
                 }
             }
         }
+        Ok(())
     }
 
     /// Determines script type by its hash
-    fn determine_script_type(&self, script_hash: &csl::ScriptHash) -> Option<WitnessRequirement> {
+    fn determine_script_type(&self, script_hash: &csl::ScriptHash) -> ScriptType {
         if self.native_script_sources.contains_key(script_hash) {
-            Some(WitnessRequirement::NativeScript(script_hash.clone()))
+            ScriptType::NativeScript
         } else if self.plutus_script_sources.contains_key(script_hash) {
-            Some(WitnessRequirement::PlutusScript(script_hash.clone()))
+            ScriptType::PlutusScript
         } else {
-            None
+            ScriptType::UnknownScript
         }
     }
 
@@ -260,136 +378,103 @@ impl<'a> WitnessValidator<'a> {
         redeemer_tag: Option<csl::RedeemerTag>,
         datum_hash: Option<csl::DataHash>,
     ) {
-        if let Some(script_type) = self.determine_script_type(&script_hash) {
-            match script_type {
-                WitnessRequirement::PlutusScript(_) => {
-                    // Plutus script
-                    self.required_plutus_script_witnesses
-                        .push(RequiredScriptWitness {
-                            script_hash,
+        let script_type = self.determine_script_type(&script_hash);
+        match script_type {
+            ScriptType::PlutusScript => {
+                // Plutus script
+                self.required_plutus_script_witnesses
+                    .push(RequiredScriptWitness {
+                        script_hash,
+                        location: location.clone(),
+                        entity_index,
+                    });
+
+                // Redeemer (if tag provided)
+                if let Some(tag) = redeemer_tag {
+                    self.required_redeemer_witnesses
+                        .push(RequiredRedeemerWitness {
+                            tag,
+                            index: entity_index,
                             location: location.clone(),
                             entity_index,
                         });
-
-                    // Redeemer (if tag provided)
-                    if let Some(tag) = redeemer_tag {
-                        self.required_redeemer_witnesses
-                            .push(RequiredRedeemerWitness {
-                                tag,
-                                index: entity_index,
-                                location: location.clone(),
-                                entity_index,
-                            });
-                    }
-
-                    // Datum (if provided)
-                    if let Some(datum) = datum_hash {
-                        self.required_datum_witnesses.push(RequiredDatumWitness {
-                            datum_hash: datum,
-                            location,
-                            entity_index,
-                        });
-                    }
                 }
-                WitnessRequirement::NativeScript(_) => {
-                    // Native script
-                    self.required_native_script_witnesses
-                        .push(RequiredScriptWitness {
-                            script_hash,
-                            location,
-                            entity_index,
-                        });
+
+                // Datum (if provided)
+                if let Some(datum) = datum_hash {
+                    self.required_datum_witnesses.push(RequiredDatumWitness {
+                        datum_hash: datum,
+                        location,
+                        entity_index,
+                    });
                 }
-                _ => {}
             }
-        } else {
-            // If we can't determine script type, mark as unknown
-            self.required_unknown_script_witnesses
-                .push(RequiredScriptWitness {
-                    script_hash,
-                    location,
-                    entity_index,
-                });
+            ScriptType::NativeScript => {
+                // Native script
+                self.required_native_script_witnesses
+                    .push(RequiredScriptWitness {
+                        script_hash,
+                        location,
+                        entity_index,
+                    });
+            }
+            ScriptType::UnknownScript => {
+                self.required_unknown_script_witnesses
+                    .push(RequiredScriptWitness {
+                        script_hash,
+                        location,
+                        entity_index,
+                    });
+            }
         }
     }
 
-    fn collect_required_witnesses(&mut self, tx: &csl::Transaction) {
+    fn collect_required_witnesses(&mut self, tx_body: &csl::TransactionBody) {
         // 1. Inputs
-        self.collect_input_witnesses(tx);
+        self.collect_input_witnesses(tx_body);
 
         // 2. Collateral inputs
-        self.collect_collateral_witnesses(tx);
+        self.collect_collateral_witnesses(tx_body);
 
         // 3. Withdrawals
-        self.collect_withdrawal_witnesses(tx);
+        self.collect_withdrawal_witnesses(tx_body);
 
         // 4. Certificates
-        self.collect_certificate_witnesses(tx);
+        self.collect_certificate_witnesses(tx_body);
 
         // 5. Voting proposals
-        self.collect_voting_proposal_witnesses(tx);
+        self.collect_voting_proposal_witnesses(tx_body);
 
         // 6. Votes
-        self.collect_vote_witnesses(tx);
+        self.collect_vote_witnesses(tx_body);
 
         // 7. Mint
-        self.collect_mint_witnesses(tx);
+        self.collect_mint_witnesses(tx_body);
 
         // 8. Required signers
-        self.collect_required_signer_witnesses(tx);
+        self.collect_required_signer_witnesses(tx_body);
     }
 
-    fn collect_native_scripts_signature_candidates(&mut self, tx: &csl::Transaction) {
+    fn collect_native_scripts_signature_candidates(
+        &mut self,
+    ) {
         // Iterate through all required native scripts
         for required in &self.required_native_script_witnesses.clone() {
-            let script_hash = &required.script_hash;
-            // Check if native script exists in witness set
-            if let Some(witness_set) = tx.witness_set().native_scripts() {
-                for i in 0..witness_set.len() {
-                    let native_script = witness_set.get(i);
-                    if native_script.hash() == *script_hash {
-                        // Get key hashes from native script
-                        let key_hashes = get_native_script_key_hashes(&native_script);
-                        for key_hash in key_hashes {
-                            self.native_scripts_signature_candidates.insert(key_hash);
-                        }
-                        break;
-                    }
+            if let Some(native_script) = self.provided_native_scripts.get(&required.script_hash) {
+                let key_hashes =
+                    get_native_script_key_hashes(&native_script);
+                for key_hash in key_hashes {
+                    self.native_scripts_signature_candidates
+                        .insert(key_hash);
                 }
             }
 
-            // Check native scripts from reference inputs
-            if let Some(source) = self.native_script_sources.get(script_hash) {
-                if let WitnessSource::ReferenceInput(ref_input) = source {
-                    if let Some(utxo) = self
-                        .validation_input_context
-                        .find_utxo(ref_input.transaction_id().to_hex(), ref_input.index())
-                    {
-                        if let Some(script_ref_hex) = &utxo.utxo.output.script_ref {
-                            if let Ok(script_ref_bytes) = hex::decode(script_ref_hex) {
-                                if let Ok(script_ref) = csl::ScriptRef::from_bytes(script_ref_bytes)
-                                {
-                                    if let Some(native_script) = script_ref.native_script() {
-                                        if native_script.hash() == *script_hash {
-                                            let key_hashes =
-                                                get_native_script_key_hashes(&native_script);
-                                            for key_hash in key_hashes {
-                                                self.native_scripts_signature_candidates
-                                                    .insert(key_hash);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
-    fn collect_input_witnesses(&mut self, tx: &csl::Transaction) {
-        let inputs = tx.body().inputs();
+
+    fn collect_input_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        let inputs = tx_body.inputs();
         for i in 0..inputs.len() {
             let input = inputs.get(i);
             if let Some(utxo) = self
@@ -439,8 +524,8 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_collateral_witnesses(&mut self, tx: &csl::Transaction) {
-        if let Some(collateral) = tx.body().collateral() {
+    fn collect_collateral_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        if let Some(collateral) = tx_body.collateral() {
             for i in 0..collateral.len() {
                 let input = collateral.get(i);
                 if let Some(utxo) = self
@@ -465,8 +550,8 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_withdrawal_witnesses(&mut self, tx: &csl::Transaction) {
-        if let Some(withdrawals) = tx.body().withdrawals() {
+    fn collect_withdrawal_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        if let Some(withdrawals) = tx_body.withdrawals() {
             let withdrawal_keys = withdrawals.keys();
             for i in 0..withdrawal_keys.len() {
                 let reward_address = withdrawal_keys.get(i);
@@ -499,8 +584,8 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_certificate_witnesses(&mut self, tx: &csl::Transaction) {
-        if let Some(certs) = tx.body().certs() {
+    fn collect_certificate_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        if let Some(certs) = tx_body.certs() {
             for i in 0..certs.len() {
                 let cert = certs.get(i);
                 self.collect_certificate_witness(&cert, i as u32);
@@ -704,8 +789,8 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_voting_proposal_witnesses(&mut self, tx: &csl::Transaction) {
-        if let Some(voting_proposals) = tx.body().voting_proposals() {
+    fn collect_voting_proposal_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        if let Some(voting_proposals) = tx_body.voting_proposals() {
             for i in 0..voting_proposals.len() {
                 let proposal = voting_proposals.get(i);
                 let gov_action = proposal.governance_action();
@@ -726,8 +811,8 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_vote_witnesses(&mut self, tx: &csl::Transaction) {
-        let votes = tx.body().voting_procedures();
+    fn collect_vote_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        let votes = tx_body.voting_procedures();
         if let Some(votes) = votes {
             let voters = votes.get_voters();
             let voters_count = voters.len();
@@ -801,14 +886,13 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_mint_witnesses(&mut self, tx: &csl::Transaction) {
-        if let Some(mint) = tx.body().mint() {
+    fn collect_mint_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        if let Some(mint) = tx_body.mint() {
             let policy_ids = mint.keys();
             for i in 0..policy_ids.len() {
                 let policy_id = policy_ids.get(i);
                 let script_hash = csl::ScriptHash::from_bytes(policy_id.to_bytes()).unwrap();
 
-                // Определяем тип скрипта по собранным витнесам
                 self.add_script_witness_requirement(
                     script_hash,
                     format!("transaction.body.mint.{}", i),
@@ -820,8 +904,8 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
-    fn collect_required_signer_witnesses(&mut self, tx: &csl::Transaction) {
-        if let Some(required_signers) = tx.body().required_signers() {
+    fn collect_required_signer_witnesses(&mut self, tx_body: &csl::TransactionBody) {
+        if let Some(required_signers) = tx_body.required_signers() {
             for i in 0..required_signers.len() {
                 let key_hash = required_signers.get(i);
                 self.required_vkey_witnesses.push(RequiredVKeyWitness {
@@ -833,12 +917,63 @@ impl<'a> WitnessValidator<'a> {
         }
     }
 
+    pub fn calulucate_actual_script_data_hash(
+        &self,
+        tx_witness_set: &csl::TransactionWitnessSet,
+    ) -> Result<Option<String>, String> {
+        let datums = tx_witness_set.plutus_data();
+        let redeemers = tx_witness_set.redeemers().unwrap_or(Redeemers::new());
+        let mut cost_models = csl::Costmdls::new();
+
+        for used_plutus_version in &self.used_plutus_versions {
+            if used_plutus_version == &csl::LanguageKind::PlutusV1 {
+                let cost_model = pp_cost_model_to_csl(
+                    self.validation_input_context
+                        .protocol_parameters
+                        .cost_models
+                        .plutus_v1
+                        .as_ref()
+                        .ok_or("Plutus V1 cost model not found")?,
+                );
+                cost_models.insert(&csl::Language::new_plutus_v1(), &cost_model);
+            } else if used_plutus_version == &csl::LanguageKind::PlutusV2 {
+                let cost_model = pp_cost_model_to_csl(
+                    self.validation_input_context
+                        .protocol_parameters
+                        .cost_models
+                        .plutus_v2
+                        .as_ref()
+                        .ok_or("Plutus V2 cost model not found")?,
+                );
+                cost_models.insert(&csl::Language::new_plutus_v2(), &cost_model);
+            } else if used_plutus_version == &csl::LanguageKind::PlutusV3 {
+                let cost_model = pp_cost_model_to_csl(
+                    self.validation_input_context
+                        .protocol_parameters
+                        .cost_models
+                        .plutus_v3
+                        .as_ref()
+                        .ok_or("Plutus V3 cost model not found")?,
+                );
+                cost_models.insert(&csl::Language::new_plutus_v3(), &cost_model);
+            }
+        }
+
+        if datums.is_some() || redeemers.len() > 0 || cost_models.len() > 0 {
+            let script_data_hash = csl::hash_script_data(&redeemers, &cost_models, datums);
+            Ok(Some(script_data_hash.to_hex()))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn validate(&self) -> ValidationResult {
         let mut errors = Vec::new();
 
-        // Проверяем VKey witnesses
         for required in &self.required_vkey_witnesses {
-            let found = self.provided_vkey_witnesses.contains(&required.key_hash);
+            let found = self
+                .provided_vkey_witnesses
+                .contains_key(&required.key_hash);
 
             if !found {
                 errors.push(ValidationError::new(
@@ -850,7 +985,31 @@ impl<'a> WitnessValidator<'a> {
             }
         }
 
-        // Проверяем Native Script witnesses
+        let required_signatures = self
+            .required_vkey_witnesses
+            .iter()
+            .map(|req| (&req.key_hash, req.location.clone()))
+            .collect::<HashMap<_, _>>();
+        for (key_hash, index) in self.invalid_signatures.iter() {
+            let location = format!("transaction.witness_set.vkeys.{}", index);
+            let required_location = required_signatures.get(key_hash).cloned();
+            if let Some(required_location) = required_location {
+                errors.push(ValidationError::new_with_locations(
+                    Phase1Error::InvalidSignature {
+                        invalid_signature: key_hash.to_hex(),
+                    },
+                    &[location, required_location],
+                ));
+            } else {
+                errors.push(ValidationError::new(
+                    Phase1Error::InvalidSignature {
+                        invalid_signature: key_hash.to_hex(),
+                    },
+                    location,
+                ));
+            }
+        }
+
         for required in &self.required_native_script_witnesses {
             let found = self
                 .native_script_sources
@@ -864,9 +1023,22 @@ impl<'a> WitnessValidator<'a> {
                     required.location.clone(),
                 ));
             }
+
+            if let Some(invalid_native_script) =
+                self.invalid_native_scripts.get(&required.script_hash)
+            {
+                errors.push(ValidationError::new_with_locations(
+                    Phase1Error::NativeScriptIsUnsuccessful {
+                        native_script_hash: required.script_hash.to_hex(),
+                    },
+                    &[
+                        required.location.clone(),
+                        invalid_native_script.get_location("native_scripts"),
+                    ],
+                ));
+            }
         }
 
-        // Проверяем Plutus Script witnesses
         for required in &self.required_plutus_script_witnesses {
             let script_found = self
                 .plutus_script_sources
@@ -882,7 +1054,6 @@ impl<'a> WitnessValidator<'a> {
             }
         }
 
-        // Проверяем Redeemer witnesses
         for required in &self.required_redeemer_witnesses {
             let redeemer_found = self
                 .provided_redeemers
@@ -899,25 +1070,19 @@ impl<'a> WitnessValidator<'a> {
             }
         }
 
-        // Проверяем Datum witnesses
         for required in &self.required_datum_witnesses {
             let datum_found = self.datum_sources.contains_key(&required.datum_hash);
-
             if !datum_found {
-                // TODO: добавить соответствующую ошибку для отсутствующих датумов
-                // Пока используем MissingScriptWitnesses как заглушку
                 errors.push(ValidationError::new(
-                    Phase1Error::MissingScriptWitnesses {
-                        missing_script_hash: hex::encode(required.datum_hash.to_bytes()),
+                    Phase1Error::MissingDatum {
+                        datum_hash: hex::encode(required.datum_hash.to_bytes()),
                     },
                     required.location.clone(),
                 ));
             }
         }
 
-        // Проверяем Unknown Script witnesses
         for required in &self.required_unknown_script_witnesses {
-            // Неизвестный тип скрипта - скрипт не был предоставлен
             errors.push(ValidationError::new(
                 Phase1Error::MissingScriptWitnesses {
                     missing_script_hash: hex::encode(required.script_hash.to_bytes()),
@@ -926,37 +1091,86 @@ impl<'a> WitnessValidator<'a> {
             ));
         }
 
-        // Проверяем на лишние витнесы (опционально)
-        let mut extraneous_scripts = HashSet::new();
+        let required_native_scripts = self
+            .required_native_script_witnesses
+            .iter()
+            .map(|req| &req.script_hash)
+            .collect::<HashSet<_>>();
+        let required_plutus_scripts = self
+            .required_plutus_script_witnesses
+            .iter()
+            .map(|req| &req.script_hash)
+            .collect::<HashSet<_>>();
 
-        // Проверяем native scripts
-        for (script_hash, _) in &self.native_script_sources {
-            let required = self
-                .required_native_script_witnesses
-                .iter()
-                .any(|req| &req.script_hash == script_hash);
-
-            if !required {
-                extraneous_scripts.insert(hex::encode(script_hash.to_bytes()));
+        for (script_hash, source) in &self.native_script_sources {
+            let required = required_native_scripts.contains(script_hash);
+            if !required && matches!(source, WitnessSource::WitnessSet(_)) {
+                errors.push(ValidationError::new(
+                    Phase1Error::ExtraneousScriptWitnesses {
+                        extraneous_script: script_hash.to_hex(),
+                    },
+                    source.get_location("native_scripts"),
+                ));
             }
         }
 
-        // Проверяем plutus scripts
-        for (script_hash, _) in &self.plutus_script_sources {
-            let required = self
-                .required_plutus_script_witnesses
-                .iter()
-                .any(|req| &req.script_hash == script_hash);
-
-            if !required {
-                extraneous_scripts.insert(hex::encode(script_hash.to_bytes()));
+        for (script_hash, source) in &self.plutus_script_sources {
+            let required = required_plutus_scripts.contains(script_hash);
+            if !required && matches!(source, WitnessSource::WitnessSet(_)) {
+                errors.push(ValidationError::new(
+                    Phase1Error::ExtraneousScriptWitnesses {
+                        extraneous_script: script_hash.to_hex(),
+                    },
+                    source.get_location("plutus_scripts"),
+                ));
             }
         }
 
-        if !extraneous_scripts.is_empty() {
+        let mut required_datums = self
+            .required_datum_witnesses
+            .iter()
+            .map(|req| &req.datum_hash)
+            .collect::<HashSet<_>>();
+        required_datums.extend(self.output_datums_hashes.iter());
+
+        for (datum_hash, source) in &self.datum_sources {
+            if !required_datums.contains(datum_hash)
+                && matches!(source, WitnessSource::WitnessSet(_))
+            {
+                errors.push(ValidationError::new(
+                    Phase1Error::ExtraneousDatumWitnesses {
+                        datum_hash: hex::encode(datum_hash.to_bytes()),
+                    },
+                    source.get_location("plutus_data"),
+                ));
+            }
+        }
+
+        let mut required_signatures = self
+            .required_vkey_witnesses
+            .iter()
+            .map(|req| &req.key_hash)
+            .collect::<HashSet<_>>();
+        required_signatures.extend(self.native_scripts_signature_candidates.iter());
+
+        for (key_hash, index) in &self.provided_vkey_witnesses {
+            if !required_signatures.contains(key_hash) {
+                errors.push(ValidationError::new(
+                    Phase1Error::ExtraneousSignature {
+                        extraneous_signature: key_hash.to_hex(),
+                    },
+                    format!("transaction.witness_set.vkeys.{}", index),
+                ));
+            }
+        }
+
+        if self.provided_script_data_hash != self.expected_script_data_hash {
             errors.push(ValidationError::new(
-                Phase1Error::ExtraneousScriptWitnesses { extraneous_scripts },
-                "transaction.witness_set".to_string(),
+                Phase1Error::ScriptDataHashMismatch {
+                    expected_hash: self.expected_script_data_hash.clone(),
+                    provided_hash: self.provided_script_data_hash.clone(),
+                },
+                "transaction.body.script_data_hash".to_string(),
             ));
         }
 
@@ -1005,4 +1219,12 @@ fn get_native_script_key_hashes_internal(
         csl::NativeScriptKind::TimelockStart => {}
         csl::NativeScriptKind::TimelockExpiry => {}
     }
+}
+
+fn pp_cost_model_to_csl(pp_cost_model: &Vec<u64>) -> csl::CostModel {
+    let mut cost_model = csl::CostModel::new();
+    for (i, cost) in pp_cost_model.iter().enumerate() {
+        cost_model.set(i, &csl::Int::new(&csl::BigNum::from(*cost)));
+    }
+    cost_model
 }

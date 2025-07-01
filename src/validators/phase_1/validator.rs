@@ -3,13 +3,7 @@ use crate::js_value::{from_js_value, JsValue};
 use crate::validators::phase_1::errors::ValidationResult;
 use crate::validators::phase_1::helpers::csl_credential_to_local_credential;
 use crate::validators::phase_1::input_contexts::ValidationInputContext;
-use crate::validators::phase_1::validation::{
-    BalanceValidator,
-    CollateralValidator,
-    AuxiliaryDataValidator,
-    RegistrationValidator,
-    WitnessValidator,
-};
+use crate::validators::phase_1::validation::{AuxiliaryDataValidator, BalanceValidator, CollateralValidator, OutputValidator, RegistrationValidator, TransactionLimitsValidator, WitnessValidator};
 use crate::validators::phase_1::validation::fee::FeeValidator;
 use crate::validators::phase_1::NecessaryInputData;
 use crate::validators::phase_1::common::{GovernanceActionId, GovernanceActionType, NetworkType};
@@ -387,35 +381,38 @@ pub fn validate_transaction(
     tx_hex: &str,
     validation_context: ValidationInputContext,
 ) -> Result<ValidationResult, JsError> {
-    let csl_tx = csl::Transaction::from_hex(tx_hex)
+    let csl_tx = csl::FixedTransaction::from_hex(tx_hex)
         .map_err(|e| JsError::new(&format!("Failed to parse transaction: {:?}", e)))?;
     let tx_body = csl_tx.body();
+    let tx_witness_set = csl_tx.witness_set();
+    let tx_hash = csl_tx.transaction_hash();
+    let auxiliary_data = csl_tx.auxiliary_data();
+    let tx_size = tx_hex.len() / 2; // Convert hex string length to bytes
     
     let mut overall_result = ValidationResult::new(vec![], vec![]);
     
     // 1. Balance validation
-    let balance_context = BalanceValidator::new(&csl_tx, &validation_context);
+    let balance_context = BalanceValidator::new(&tx_body, &validation_context);
     let balance_result = balance_context.validate();
     overall_result.append(balance_result);
-    
+
     // 2. Fee validation
-    let tx_size = tx_hex.len() / 2; // Convert hex string length to bytes
-    let fee_context = FeeValidator::new(tx_size, &csl_tx, &validation_context)?;
+    let fee_context = FeeValidator::new(tx_size, &tx_body, &tx_witness_set, &validation_context)?;
     let fee_result = fee_context.validate();
     overall_result.append(fee_result);
     
     // 3. Witness validation
-    let witness_context = WitnessValidator::new(&csl_tx, &validation_context);
+    let witness_context = WitnessValidator::new(&tx_body, &tx_witness_set, &tx_hash, &validation_context)?;
     let witness_result = witness_context.validate();
     overall_result.append(witness_result);
     
     // 4. Collateral validation
-    let collateral_context = CollateralValidator::new(&csl_tx, &validation_context);
+    let collateral_context = CollateralValidator::new(&tx_body, &tx_witness_set, &validation_context);
     let collateral_result = collateral_context.validate();
     overall_result.append(collateral_result);
     
     // 5. Auxiliary data validation
-    let auxiliary_context = AuxiliaryDataValidator::new(&csl_tx);
+    let auxiliary_context = AuxiliaryDataValidator::new(&tx_body, auxiliary_data);
     let auxiliary_result = auxiliary_context.validate();
     overall_result.append(auxiliary_result);
     
@@ -423,6 +420,16 @@ pub fn validate_transaction(
     let registration_context = RegistrationValidator::new(&tx_body, &validation_context);
     let registration_result = registration_context.validate();
     overall_result.append(registration_result);
+
+    // 7. Output validation
+    let output_context = OutputValidator::new(&tx_body, &validation_context);
+    let output_result = output_context.validate();
+    overall_result.append(output_result);
+
+    // 8. Transaction limits validation
+    let transaction_limits_context = TransactionLimitsValidator::new(tx_size, &tx_body, &tx_witness_set, &validation_context)?;
+    let transaction_limits_result = transaction_limits_context.validate();
+    overall_result.append(transaction_limits_result);
     
     Ok(overall_result)
 }

@@ -36,7 +36,7 @@ struct InputsDecomposition {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Withdrawal {
-    pub amount: i128,
+    pub amount: u64,
     pub index: u32,
     pub reward_address: String,
 }
@@ -52,7 +52,7 @@ impl InputsDecomposition {
         }   
         total_sum.add_multiasset(&self.mints);
         for withdrawal in self.withdrawals.iter() {
-            total_sum.add_coins(withdrawal.amount);
+            total_sum.add_coins(withdrawal.amount as i128);
         }
         total_sum
     }
@@ -70,7 +70,7 @@ struct OutputsDecomposition {
 impl OutputsDecomposition {
     pub fn get_total_sum(&self) -> Value {
         let mut total_sum = self.total_output.clone();
-        total_sum.subtract_multiasset(&self.burn);
+        total_sum.add_multiasset(&self.burn);
         total_sum.add_coins(self.fees);
         for deposit in self.deposits.iter() {
             match deposit {
@@ -97,22 +97,21 @@ pub struct BalanceValidator<'a> {
 }
 
 impl<'a> BalanceValidator<'a> {
-    pub fn new(tx: &csl::Transaction, validation_input_context: &'a ValidationInputContext) -> Self {
-        let total_inputs = calculate_total_inputs(tx, validation_input_context);
-        let (refunds, cert_deposits) = calculate_deposits_and_refunds(tx, validation_input_context);
+    pub fn new(tx_body: &csl::TransactionBody, validation_input_context: &'a ValidationInputContext) -> Self {
+        let total_inputs = calculate_total_inputs(tx_body, validation_input_context);
+        let (refunds, cert_deposits) = calculate_deposits_and_refunds(tx_body, validation_input_context);
         
-        let mut deposits = calculate_voting_proposals_deposits(tx);
+        let mut deposits = calculate_voting_proposals_deposits(tx_body);
         deposits.extend(cert_deposits);
 
-        let withdrawals = get_withdrawals(tx);
-        let mints = calculate_mints(tx);
+        let withdrawals = get_withdrawals(tx_body);
+        let mints = calculate_mints(tx_body);
         
-        let total_output = calculate_total_output(tx);
-        let burn = calculate_burn(tx);
-        let fees = tx.body().fee().to_str().parse::<i128>().unwrap_or(0);
-        let donation = get_donation(tx);
-        let treasury_value = tx
-            .body()
+        let total_output = calculate_total_output(tx_body);
+        let burn = calculate_burn(tx_body);
+        let fees = tx_body.fee().to_str().parse::<i128>().unwrap_or(0);
+        let donation = get_donation(tx_body);
+        let treasury_value = tx_body
             .current_treasury_value()
             .map(|value| value.to_str().parse::<u64>().unwrap_or(0));
 
@@ -194,13 +193,18 @@ impl<'a> BalanceValidator<'a> {
             if let Some(account_context) = account_context {
                 if account_context.is_registered {
                     if let Some(balance) = account_context.balance {
-                        if withdrawal.amount != balance as i128 {
+                        if withdrawal.amount != balance {
                             errors.push(ValidationError::new(Phase1Error::WrongRequestedWithdrawalAmount {
                                 expected_amount: balance as i128,
                                 requested_amount: withdrawal.amount as i128,
                                 reward_address: reward_address.clone(),
                             }, format!("transaction.body.withdrawals.{}", withdrawal.index)));
                         }
+                    }
+                    if account_context.delegated_to_drep.is_none() {
+                        errors.push(ValidationError::new(Phase1Error::WithdrawalNotAllowedBecauseNotDelegatedToDRep {
+                            reward_address: reward_address.clone(),
+                        }, format!("transaction.body.withdrawals.{}", withdrawal.index)));
                     }
                 } else {
                     errors.push(ValidationError::new(Phase1Error::RewardAccountNotExisting {
@@ -218,7 +222,7 @@ impl<'a> BalanceValidator<'a> {
 
     fn validate_deposits(&self) -> ValidationResult {
         let mut errors = Vec::new();
-        let mut warnings = Vec::new();
+        let warnings = Vec::new();
 
         for deposit in self.outputs.deposits.iter() {
             match deposit {
@@ -322,8 +326,8 @@ impl<'a> BalanceValidator<'a> {
     }
 }
 
-fn calculate_total_inputs(tx: &csl::Transaction, validation_input_context: &crate::validators::phase_1::input_contexts::ValidationInputContext) -> Value {
-    tx.body()
+fn calculate_total_inputs(tx_body: &csl::TransactionBody, validation_input_context: &ValidationInputContext) -> Value {
+    tx_body
         .inputs()
         .into_iter()
         .map(|input| {
@@ -337,11 +341,11 @@ fn calculate_total_inputs(tx: &csl::Transaction, validation_input_context: &crat
         .fold(Value::new_from_coins(0), |acc, value| acc + value)
 }
 
-fn calculate_deposits_and_refunds(tx: &csl::Transaction, validation_input_context: &ValidationInputContext) -> (Vec<RefundType>, Vec<DepositType>) {
+fn calculate_deposits_and_refunds(tx_body: &csl::TransactionBody, validation_input_context: &ValidationInputContext) -> (Vec<RefundType>, Vec<DepositType>) {
     let mut refunds = Vec::new();
     let mut deposits = Vec::new();
 
-    let certificates = tx.body().certs();
+    let certificates = tx_body.certs();
     if let Some(certificates) = certificates {
         let certs_count = certificates.len();
     for i in 0..certs_count {
@@ -462,8 +466,8 @@ fn calculate_deposits_and_refunds(tx: &csl::Transaction, validation_input_contex
     (refunds, deposits)
 }
 
-fn get_withdrawals(tx: &csl::Transaction) -> Vec<Withdrawal> {
-    let withdrawals = tx.body().withdrawals();
+fn get_withdrawals(tx_body: &csl::TransactionBody) -> Vec<Withdrawal> {
+    let withdrawals = tx_body.withdrawals();
     if let Some(withdrawals) = withdrawals {
         let withdrawals_keys = withdrawals.keys();
         let total_keys = withdrawals_keys.len();
@@ -473,7 +477,7 @@ fn get_withdrawals(tx: &csl::Transaction) -> Vec<Withdrawal> {
             let amount = withdrawals.get(&key);
             if let Some(amount) = amount {
                 total_withdrawals.push(Withdrawal {
-                    amount: amount.to_str().parse::<i128>().unwrap_or(0),
+                    amount: amount.to_str().parse::<u64>().unwrap_or(0),
                     index: i as u32,
                     reward_address: key.to_address().to_bech32(None).unwrap_or_else(|_| "".to_string())
                 });
@@ -485,42 +489,42 @@ fn get_withdrawals(tx: &csl::Transaction) -> Vec<Withdrawal> {
     }
 }
 
-fn calculate_mints(tx: &csl::Transaction) -> MultiAsset {
-    if let Some(mint) = tx.body().mint() {
-        MultiAsset::new_from_csl_multiasset(&mint.as_positive_multiasset())
+fn calculate_mints(tx_body: &csl::TransactionBody) -> MultiAsset {
+    if let Some(mint) = tx_body.mint() {
+        MultiAsset::new_from_csl_multiasset(&mint.as_positive_multiasset(), true)
     } else {
         MultiAsset::new()
     }
 }
 
-fn calculate_total_output(tx: &csl::Transaction) -> Value {
-    tx.body()
+fn calculate_total_output(tx_body: &csl::TransactionBody) -> Value {
+    tx_body
         .outputs()
         .into_iter()
         .map(|output| Value::new_from_csl_value(&output.amount()))
         .fold(Value::new_from_coins(0), |acc, value| acc + value)
 }
 
-fn calculate_burn(tx: &csl::Transaction) -> MultiAsset {
-    let mint = tx.body().mint();
+fn calculate_burn(tx_body: &csl::TransactionBody) -> MultiAsset {
+    let mint = tx_body.mint();
     if let Some(mint) = mint {
-        MultiAsset::new_from_csl_multiasset(&mint.as_negative_multiasset())
+        MultiAsset::new_from_csl_multiasset(&mint.as_negative_multiasset(), true)
     } else {
         MultiAsset::new()
     }
 }
 
-fn get_donation(tx: &csl::Transaction) -> i128 {
-    let donation = tx.body().donation();
+fn get_donation(tx_body: &csl::TransactionBody) -> i128 {
+    let donation = tx_body.donation();
     if let Some(donation) = donation {
         donation.to_str().parse::<i128>().unwrap_or(0)
     } else {
         0
     }
 }
-fn calculate_voting_proposals_deposits(tx: &csl::Transaction) -> Vec<DepositType> {
+fn calculate_voting_proposals_deposits(tx_body: &csl::TransactionBody) -> Vec<DepositType> {
     let mut deposits = Vec::new();
-    let voting_proposals = tx.body().voting_proposals();
+    let voting_proposals = tx_body.voting_proposals();
     if let Some(voting_proposals) = voting_proposals {
         let voting_proposals_count = voting_proposals.len();
         for i in 0..voting_proposals_count {

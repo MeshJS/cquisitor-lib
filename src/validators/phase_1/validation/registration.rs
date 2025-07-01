@@ -844,9 +844,6 @@ impl<'a> RegistrationValidator<'a> {
                     ));
                 }
             }
-            _ => {
-                // Other certificate types don't need validation in this context
-            }
         }
     }
 }

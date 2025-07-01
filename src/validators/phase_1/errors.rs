@@ -10,6 +10,7 @@ use crate::validators::phase_1::common::ProtocolVersion;
 
 use super::common::{FeeDecomposition, LocalCredential as Credential, GovernanceActionId, Voter};
 use super::value::Value;
+use super::hints::{get_error_hint, get_warning_hint};
 
 #[derive(Serialize, Deserialize, JsonSchema)]
 pub struct ValidationResult {
@@ -28,7 +29,7 @@ impl ValidationResult {
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
 pub struct ValidationError {
     pub error: Phase1Error,
     pub error_message: String,
@@ -39,16 +40,28 @@ pub struct ValidationError {
 impl ValidationError {
     pub fn new(error: Phase1Error, location: String) -> Self {
         let error_message = error.to_string();
+        let hint = get_error_hint(&error);
         Self {
             error,
             error_message,
             locations: vec![location],
-            hint: None,
+            hint,
+        }
+    }
+
+    pub fn new_with_locations(error: Phase1Error, locations: &[String]) -> Self {
+        let error_message = error.to_string();
+        let hint = get_error_hint(&error);
+        Self {
+            error,
+            error_message,
+            locations: locations.to_vec(),
+            hint,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub struct ValidationWarning {
     pub warning: Phase1Warning,
     pub locations: Vec<String>,
@@ -57,16 +70,17 @@ pub struct ValidationWarning {
 
 impl ValidationWarning {
     pub fn new(warning: Phase1Warning, location: String) -> Self {
+        let hint = get_warning_hint(&warning);
         Self {
             warning,
             locations: vec![location],
-            hint: None,
+            hint,
         }
     }
 }
 
 /// Phase 1 validation errors
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema, Clone)]
 pub enum Phase1Error {
     /// The transaction references one or more input UTxOs that do not exist or have already been spent
     BadInputsUTxO {
@@ -122,29 +136,27 @@ pub enum Phase1Error {
     },
     /// One or more transaction outputs are too large in size
     OutputTooBigUTxO {
-        oversized_outputs: HashSet<String>,
-        max_size: u64,
+        actual_size: u32,
+        max_size: u32,
     },
     /// The transaction's collateral inputs do not cover the required collateral amount
     InsufficientCollateral {
         total_collateral: i128,
         required_collateral: i128,
     },
-    /// A script address in the UTxO is not accompanied by the correct script witness
-    ScriptsNotPaidUTxO { missing_witness: HashSet<String> },
     /// The total execution units requested by the transaction's Plutus scripts exceed the allowed maximum
-    ExUnitsTooBigUTxO { actual_units: u64, max_units: u64 },
+    ExUnitsTooBigUTxO { 
+        actual_memory_units: u64,
+        actual_steps_units: u64,
+        max_memory_units: u64,
+        max_steps_units: u64,
+    },
     /// The collateral inputs contain non-ADA assets
     CalculatedCollateralContainsNonAdaAssets,
     /// The collateral input contains non-ADA assets
     CollateralInputContainsNonAdaAssets { collateral_input: String },
     /// The collateral inputs are locked by a script
     CollateralIsLockedByScript { invalid_collateral: String },
-    /// The transaction's validity interval extends beyond the forecast range
-    OutsideForecast {
-        current_slot: u64,
-        max_forecast_slot: u64,
-    },
     /// The number of collateral inputs exceeds the maximum allowed
     TooManyCollateralInputs { actual_count: u32, max_count: u32 },
     /// The transaction marked as requiring script execution has no collateral inputs
@@ -193,7 +205,7 @@ pub enum Phase1Error {
     /// The metadata payload is invalid
     InvalidMetadata { message: String },
     /// The transaction supplied script witnesses that are not needed
-    ExtraneousScriptWitnesses { extraneous_scripts: HashSet<String> },
+    ExtraneousScriptWitnesses { extraneous_script: String },
     /// A stake registration certificate attempted to register an already registered stake key
     StakeAlreadyRegistered { reward_address: String },
     /// A stake key deregistration or delegation was attempted for an unregistered stake key
@@ -269,7 +281,7 @@ pub enum Phase1Error {
     /// Reference scripts size too big
     RefScriptsSizeTooBig { actual_size: u64, max_size: u64 },
     /// Withdrawal from stake credential not delegated to DRep
-    WdrlNotDelegatedToDRep { stake_credential: Credential },
+    WithdrawalNotAllowedBecauseNotDelegatedToDRep { reward_address: String },
     /// The transaction attempts to reference or update a committee cold credential that is not recognized
     CommitteeIsUnknown {
         /// The committee key hash
@@ -349,7 +361,7 @@ pub enum Phase1Error {
         expected_hash: Option<String>,
     },
     /// Referenced voters do not exist in the ledger state
-    VotersDoNotExist {
+    VoterDoNotExist {
         /// List of non-existent voters
         missing_voter: serde_json::Value,
     },
@@ -381,6 +393,23 @@ pub enum Phase1Error {
     AuxiliaryDataHashPresentButNotExpected,
     GenesisKeyDelegationCertificateIsNotSupported,
     MoveInstantaneousRewardsCertificateIsNotSupported,
+    /// Unknown error
+    UnknownError {
+        message: String,
+    },
+    MissingDatum {
+        datum_hash: String,
+    },
+    ExtraneousDatumWitnesses {
+        datum_hash: String,
+    },
+    /// Script data hash mismatch
+    ScriptDataHashMismatch {
+        /// The expected script data hash
+        expected_hash: Option<String>,
+        /// The actual script data hash
+        provided_hash: Option<String>,
+    },
 }
 
 impl Phase1Error {
@@ -470,12 +499,12 @@ impl Phase1Error {
                         )
                     }
             Self::OutputTooBigUTxO {
-                        oversized_outputs,
+                        actual_size,
                         max_size,
                     } => {
                         format!(
-                            "Transaction outputs exceed maximum size of {} bytes: {:?}",
-                            max_size, oversized_outputs
+                            "Transaction output exceeds maximum size of {} bytes: {:?}",
+                            max_size, actual_size
                         )
                     }
             Self::InsufficientCollateral {
@@ -486,17 +515,6 @@ impl Phase1Error {
                             "Insufficient collateral: {} lovelace provided, {} lovelace required",
                             total_collateral, required_collateral
                         )
-                    }
-            Self::ScriptsNotPaidUTxO {
-                        missing_witness: missing_witnes,
-                    } => {
-                        format!("Missing script witnesses for: {:?}", missing_witnes)
-                    }
-            Self::OutsideForecast {
-                        current_slot,
-                        max_forecast_slot,
-                    } => {
-                        format!("Transaction validity extends beyond maximum forecast slot. Current: {}, Max forecast: {}", current_slot, max_forecast_slot)
                     }
             Self::TooManyCollateralInputs {
                         actual_count,
@@ -570,10 +588,10 @@ impl Phase1Error {
             Self::InvalidMetadata { message } => {
                         format!("Invalid metadata: {}", message)
                     }
-            Self::ExtraneousScriptWitnesses { extraneous_scripts } => {
+            Self::ExtraneousScriptWitnesses { extraneous_script } => {
                         format!(
-                            "Unnecessary script witnesses provided: {:?}",
-                            extraneous_scripts
+                            "Unnecessary script witness provided: {}",
+                            extraneous_script
                         )
                     }
             Self::StakeAlreadyRegistered { reward_address } => {
@@ -658,10 +676,10 @@ impl Phase1Error {
                     } => {
                         format!("Total reference scripts size ({} bytes) exceeds maximum allowed ({} bytes) in the transaction", actual_size, max_size)
                     }
-            Self::WdrlNotDelegatedToDRep { stake_credential } => {
+            Self::WithdrawalNotAllowedBecauseNotDelegatedToDRep { reward_address } => {
                         format!(
                             "Withdrawal attempted from stake credential not delegated to DRep: {:?}",
-                            stake_credential
+                            reward_address
                         )
                     }
             Self::CommitteeIsUnknown { committee_key_hash } => {
@@ -752,7 +770,7 @@ impl Phase1Error {
                             supplied_hash, expected_hash
                         )
                     }
-            Self::VotersDoNotExist { missing_voter } => {
+            Self::VoterDoNotExist { missing_voter } => {
                         format!(
                             "Referenced voters do not exist in ledger state: {:?}",
                             serde_json::to_string(&missing_voter).unwrap()
@@ -776,8 +794,8 @@ impl Phase1Error {
                             missing_account
                         )
                     }
-            Phase1Error::ExUnitsTooBigUTxO { .. } => {
-                        "Transaction execution units exceed maximum allowed".to_string()
+            Self::ExUnitsTooBigUTxO { actual_memory_units, actual_steps_units, max_memory_units, max_steps_units } => {
+                        format!("Transaction exec   ution units exceed maximum allowed. Memory units: {}, Steps units: {}, Max memory units: {}, Max steps units: {}", actual_memory_units, actual_steps_units, max_memory_units, max_steps_units)
                     }
             Self::AuxiliaryDataHashMismatch {
                         expected_hash,
@@ -828,11 +846,23 @@ impl Phase1Error {
             Self::MoveInstantaneousRewardsCertificateIsNotSupported => {
                 "Move instantaneous rewards certificate is not supported".to_string()
             }
+            Self::UnknownError { message } => {
+                format!("Unknown error. Seems something went wrong. Message: {}", message)
+            },
+            Self::MissingDatum { datum_hash } => {
+                format!("Missing datum: {}", datum_hash)
+            },
+            Self::ExtraneousDatumWitnesses { datum_hash } => {
+                format!("Extraneous datum witnesses provided: {}", datum_hash)
+            }
+            Self::ScriptDataHashMismatch { expected_hash, provided_hash } => {
+                format!("Script data hash mismatch. Expected: {}, Found: {}", expected_hash.as_ref().unwrap_or(&"None".to_string()), provided_hash.as_ref().unwrap_or(&"None".to_string()))
+            },
         }
     }
 }
 
-#[derive(Serialize, Deserialize, JsonSchema)]
+#[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
 pub enum Phase1Warning {
     FeeIsBiggerThanMinFee {
         actual_fee: u64,
