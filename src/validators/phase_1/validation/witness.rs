@@ -1221,10 +1221,15 @@ fn get_native_script_key_hashes_internal(
     }
 }
 
-fn pp_cost_model_to_csl(pp_cost_model: &Vec<u64>) -> csl::CostModel {
+fn pp_cost_model_to_csl(pp_cost_model: &Vec<i64>) -> csl::CostModel {
     let mut cost_model = csl::CostModel::new();
     for (i, cost) in pp_cost_model.iter().enumerate() {
-        cost_model.set(i, &csl::Int::new(&csl::BigNum::from(*cost)));
+        if *cost < 0 {
+            cost_model.set(i, &csl::Int::new_negative(&csl::BigNum::from(cost.abs() as u64)));
+        } else {
+            cost_model.set(i, &csl::Int::new(&csl::BigNum::from(cost.abs() as u64)));
+        }
+
     }
     cost_model
 }

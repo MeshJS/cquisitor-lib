@@ -49,9 +49,9 @@ pub struct UTxO {
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CostModels {
-    pub(crate) plutus_v1: Option<Vec<u64>>,
-    pub(crate) plutus_v2:  Option<Vec<u64>>,
-    pub(crate) plutus_v3: Option<Vec<u64>>,
+    pub(crate) plutus_v1: Option<Vec<i64>>,
+    pub(crate) plutus_v2:  Option<Vec<i64>>,
+    pub(crate) plutus_v3: Option<Vec<i64>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
