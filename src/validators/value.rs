@@ -31,7 +31,7 @@ impl PartialEq for MultiAsset {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct ValidatorAsset {
+pub struct ValidatorAsset {
     pub unit: String,
     pub quantity: i128,
 }

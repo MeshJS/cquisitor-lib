@@ -66,7 +66,7 @@ struct ByteWrapper(Vec<u8>);
 
 impl<'b, C> minicbor::Decode<'b, C> for ByteWrapper
 {
-    fn decode(d: &mut minicbor::Decoder<'b>, ctx: &mut C) -> std::result::Result<Self, minicbor::decode::Error> {
+    fn decode(d: &mut minicbor::Decoder<'b>, _ctx: &mut C) -> std::result::Result<Self, minicbor::decode::Error> {
         let cbor = d.bytes()?;
         Ok(ByteWrapper(cbor.to_vec()))
     }
@@ -77,7 +77,7 @@ impl<C> minicbor::Encode<C> for ByteWrapper
     fn encode<W: minicbor::encode::Write>(
         &self,
         e: &mut minicbor::Encoder<W>,
-        ctx: &mut C,
+        _ctx: &mut C,
     ) -> std::result::Result<(), minicbor::encode::Error<W::Error>> {
         e.bytes(&self.0)?;
         Ok(())

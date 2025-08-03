@@ -1,7 +1,7 @@
 
 use minicbor::{
     data::Tag,
-    decode::{Decoder, Error as CborError, ExtendedToken, ExtendedTokenizer, Token},
+    decode::{Decoder, ExtendedToken, ExtendedTokenizer, Token},
 };
 use serde_json::{Number, Value};
 
@@ -580,8 +580,4 @@ pub fn get_tag_name(tag: &Tag) -> String {
         Tag::Mime => "Mime".to_string(),
         Tag::Unassigned(u) => format!("Unassigned({})", u),
     }
-}
-
-pub fn cbor_error_to_js_error(e: CborError) -> JsError {
-    JsError::new(&format!("CBOR error: {:?}", e))
 }

@@ -1,13 +1,14 @@
-use crate::validators::phase_1::{
-    errors::{Phase1Error, Phase1Warning, ValidationError, ValidationResult, ValidationWarning},
+use crate::validators::{
     helpers::{csl_tx_input_to_string, string_to_csl_address},
+    input_contexts::ValidationInputContext,
+    phase_1::errors::{Phase1Error, Phase1Warning, ValidationPhase1Error, ValidationPhase1Warning},
+    validation_result::ValidationResult,
     value::Value,
-    ValidationInputContext,
 };
 use cardano_serialization_lib::{self as csl, BigNum};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum InvalidInputType {
+pub enum InvalidInputType {
     PaymentCredentialIsScript,
     AddressIsReward,
     HasNonAdaAssets,
@@ -82,7 +83,7 @@ impl CollateralValidator {
         let mut warnings = Vec::new();
 
         if self.actual_number_of_inputs > self.max_number_of_inputs {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::TooManyCollateralInputs {
                     actual_count: self.actual_number_of_inputs,
                     max_count: self.max_number_of_inputs,
@@ -94,14 +95,14 @@ impl CollateralValidator {
         if !self.need_collateral
             && (self.actual_number_of_inputs > 0 || self.total_collateral.is_some())
         {
-            warnings.push(ValidationWarning::new(
+            warnings.push(ValidationPhase1Warning::new(
                 Phase1Warning::CollateralIsUnnecessary,
                 "transaction.body.collateral".to_string(),
             ));
         }
 
         if self.need_collateral && self.actual_collateral.is_none() {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::NoCollateralInputs,
                 "transaction.body.collateral".to_string(),
             ));
@@ -109,7 +110,7 @@ impl CollateralValidator {
 
         if let Some(total_collateral) = self.total_collateral {
             if total_collateral < self.estimated_minimal_collateral {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::InsufficientCollateral {
                         total_collateral,
                         required_collateral: self.estimated_minimal_collateral,
@@ -120,7 +121,7 @@ impl CollateralValidator {
 
             if let Some(actual_collateral) = &self.actual_collateral {
                 if actual_collateral.coins != total_collateral {
-                    errors.push(ValidationError::new(
+                    errors.push(ValidationPhase1Error::new(
                         Phase1Error::IncorrectTotalCollateralField {
                             declared_total: total_collateral,
                             actual_sum: actual_collateral.coins,
@@ -132,7 +133,7 @@ impl CollateralValidator {
         } else {
             if let Some(total_input) = &self.total_input {
                 if total_input.coins < self.estimated_minimal_collateral {
-                    errors.push(ValidationError::new(
+                    errors.push(ValidationPhase1Error::new(
                         Phase1Error::InsufficientCollateral {
                             total_collateral: total_input.coins,
                             required_collateral: self.estimated_minimal_collateral,
@@ -143,7 +144,7 @@ impl CollateralValidator {
             }
 
             if self.collateral_return.is_some() {
-                warnings.push(ValidationWarning::new(
+                warnings.push(ValidationPhase1Warning::new(
                     Phase1Warning::TotalCollateralIsNotDeclared,
                     "transaction.body.total_collateral".to_string(),
                 ));
@@ -157,7 +158,7 @@ impl CollateralValidator {
                 .map(|x| x.has_assets())
                 .unwrap_or(false)
             {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::CalculatedCollateralContainsNonAdaAssets,
                     "transaction.body.collateral".to_string(),
                 ));
@@ -165,7 +166,7 @@ impl CollateralValidator {
         } else {
             for input in self.invalid_inputs.iter() {
                 if input.2 == InvalidInputType::HasNonAdaAssets {
-                    errors.push(ValidationError::new(
+                    errors.push(ValidationPhase1Error::new(
                         Phase1Error::CollateralInputContainsNonAdaAssets {
                             collateral_input: csl_tx_input_to_string(&input.0),
                         },
@@ -178,7 +179,7 @@ impl CollateralValidator {
         if let Some(min_ada_for_collateral_return) = self.min_ada_for_collateral_return {
             if let Some(collateral_return) = &self.collateral_return {
                 if collateral_return.coins < min_ada_for_collateral_return {
-                    errors.push(ValidationError::new(
+                    errors.push(ValidationPhase1Error::new(
                         Phase1Error::CollateralReturnTooSmall {
                             output_amount: collateral_return.coins,
                             min_amount: min_ada_for_collateral_return,
@@ -191,14 +192,14 @@ impl CollateralValidator {
 
         for invalid_input in self.invalid_inputs.iter() {
             if invalid_input.2 == InvalidInputType::PaymentCredentialIsScript {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::CollateralIsLockedByScript {
                         invalid_collateral: csl_tx_input_to_string(&invalid_input.0),
                     },
                     format!("transaction.body.collateral.{}", invalid_input.1),
                 ));
             } else if invalid_input.2 == InvalidInputType::AddressIsReward {
-                warnings.push(ValidationWarning::new(
+                warnings.push(ValidationPhase1Warning::new(
                     Phase1Warning::CollateralInputUsesRewardAddress {
                         invalid_collateral: csl_tx_input_to_string(&invalid_input.0),
                     },
@@ -206,7 +207,7 @@ impl CollateralValidator {
                 ));
             }
         }
-        ValidationResult::new(errors, warnings)
+        ValidationResult::new_phase_1(errors, warnings)
     }
 }
 

@@ -1,10 +1,9 @@
-use crate::validators::phase_1::{
-    errors::{Phase1Error, ValidationError, ValidationResult},
-    value::Value,
-    ValidationInputContext,
+use crate::validators::{
+    input_contexts::ValidationInputContext,
+    phase_1::errors::{Phase1Error, ValidationPhase1Error},
+    validation_result::ValidationResult,
 };
 use cardano_serialization_lib::{self as csl, BigNum};
-use std::collections::HashSet;
 
 pub struct OutputValidator {
     pub oversized_outputs: Vec<(usize, u32)>, // (index, value_size)
@@ -64,7 +63,7 @@ impl OutputValidator {
         for (index, value_size) in &self.oversized_outputs {
             // Check for oversized outputs
             if !self.oversized_outputs.is_empty() {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::OutputTooBigUTxO {
                         actual_size: *value_size,
                         max_size: self.max_value_size,
@@ -76,7 +75,7 @@ impl OutputValidator {
 
         // Check for outputs below minimum ADA
         for (index, actual_amount, min_amount) in &self.outputs_below_min_ada {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::OutputTooSmallUTxO {
                     output_amount: *actual_amount,
                     min_amount: *min_amount,
@@ -85,6 +84,6 @@ impl OutputValidator {
             ));
         }
 
-        ValidationResult::new(errors, Vec::new())
+        ValidationResult::new_phase_1(errors, Vec::new())
     }
 }

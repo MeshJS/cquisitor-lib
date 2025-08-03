@@ -1,6 +1,10 @@
+#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
 use std::fmt::format;
-use serde::de::DeserializeOwned;
+
+#[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]
 use serde::Serialize;
+
+use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 
 #[cfg(all(target_arch = "wasm32", not(target_os = "emscripten")))]

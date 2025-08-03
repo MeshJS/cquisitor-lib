@@ -13,7 +13,7 @@ pub fn decode_address(input: &str, is_hex: bool, is_bech32: bool, is_base58: boo
     format_address(decoded)
 }
 
-pub fn decode_transaction(input: &str, is_hex: bool, is_bech32: bool, is_base58: bool) -> Result<JsValue, String> {
+pub fn decode_transaction(input: &str, is_hex: bool, _is_bech32: bool, _is_base58: bool) -> Result<JsValue, String> {
     if !is_hex {
         Err("Only hex encoding is supported".to_string())?;
     }
@@ -196,7 +196,7 @@ fn vec_to_string(vec: &Vec<u8>) -> String {
     result
 }
 
-fn decode_byron_addr_internal(input: &str, is_hex: bool, is_bech32: bool, is_base58: bool) -> Result<ByronAddress, String> {
+fn decode_byron_addr_internal(input: &str, is_hex: bool, _is_bech32: bool, is_base58: bool) -> Result<ByronAddress, String> {
     if is_hex {
         if let Ok(bytes) = hex::decode(input) {
             if let Ok(decoded) = csl::ByronAddress::from_bytes(bytes) {
@@ -212,7 +212,7 @@ fn decode_byron_addr_internal(input: &str, is_hex: bool, is_bech32: bool, is_bas
     Err("Failed to decode".to_string())
 }
 
-pub fn decode_native_script(input: &str, is_hex: bool, is_bech32: bool, is_base58: bool) -> Result<JsValue, String> {
+pub fn decode_native_script(input: &str, is_hex: bool, _is_bech32: bool, _is_base58: bool) -> Result<JsValue, String> {
     if !is_hex {
         Err("Only hex encoding is supported".to_string())?;
     }
@@ -230,7 +230,7 @@ pub fn decode_native_script(input: &str, is_hex: bool, is_bech32: bool, is_base5
     from_serde_json_value(&value).map_err(|e| format!("Failed to convert to JsValue: {}", e))
 }
 
-pub fn decode_plutus_script(input: &str, version: Option<i32>, is_hex: bool, is_bech32: bool, is_base58: bool) -> Result<JsValue, String> {
+pub fn decode_plutus_script(input: &str, version: Option<i32>, is_hex: bool, _is_bech32: bool, _is_base58: bool) -> Result<JsValue, String> {
     if !is_hex {
         Err("Only hex encoding is supported".to_string())?;
     }
@@ -274,8 +274,8 @@ pub fn decode_plutus_data(
     input: &str,
     schema: Option<PlutusDataSchema>,
     is_hex: bool,
-    is_bech32: bool,
-    is_base58: bool
+    _is_bech32: bool,
+    _is_base58: bool
 ) -> Result<JsValue, String> {
     if !is_hex {
         Err("Only hex encoding is supported".to_string())?;

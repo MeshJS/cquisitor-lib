@@ -2898,7 +2898,7 @@ pub fn decode_specific_type(
         "KESSignature" => {
             if is_hex {
                 if let Ok(bytes) = hex::decode(input) {
-                    if let Ok(decoded) = csl::KESSignature::from_bytes(bytes) {
+                    if let Ok(_decoded) = csl::KESSignature::from_bytes(bytes) {
                         let value = Ok::<serde_json::Value, String>(serde_json::Value::String(
                             "Decoded, but no additional representation".to_string(),
                         ))?;
@@ -2914,7 +2914,7 @@ pub fn decode_specific_type(
         "LegacyDaedalusPrivateKey" => {
             if is_hex {
                 if let Ok(bytes) = hex::decode(input) {
-                    if let Ok(decoded) = csl::LegacyDaedalusPrivateKey::from_bytes(&bytes) {
+                    if let Ok(_decoded) = csl::LegacyDaedalusPrivateKey::from_bytes(&bytes) {
                         let value = Ok::<serde_json::Value, String>(serde_json::Value::String(
                             "Decoded, but no additional representation".to_string(),
                         ))?;

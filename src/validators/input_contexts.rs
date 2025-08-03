@@ -1,9 +1,12 @@
-use serde::{Serialize, Deserialize};
-use std::convert::TryFrom;
-use crate::{common::{TxInput, UTxO}, validators::phase_1::common::{GovernanceActionId, GovernanceActionType, NetworkType}};
+use crate::{
+    common::{TxInput, UTxO},
+    validators::common::{GovernanceActionId, GovernanceActionType, NetworkType},
+};
 use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 
-use super::{common::LocalCredential, ProtocolParameters};
+use super::{common::LocalCredential, protocol_params::ProtocolParameters};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -14,7 +17,8 @@ pub struct NecessaryInputData {
     pub d_reps: Vec<String>,
     pub gov_actions: Vec<GovernanceActionId>,
     pub last_enacted_gov_action: Vec<GovernanceActionType>,
-    pub committee_members: Vec<LocalCredential>,
+    pub committee_members_cold: Vec<LocalCredential>,
+    pub committee_members_hot: Vec<LocalCredential>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -62,9 +66,9 @@ pub struct UtxoInputContext {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CommitteeInputContext {
-    pub active_committee_members: Vec<LocalCredential>,
-    pub potential_committee_members: Vec<LocalCredential>,
-    pub resigned_committee_members: Vec<LocalCredential>,
+    pub committee_member_cold: LocalCredential,
+    pub committee_member_hot: Option<LocalCredential>,
+    pub is_resigned: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -78,7 +82,8 @@ pub struct ValidationInputContext {
     pub pool_contexts: Vec<PoolInputContext>,
     pub gov_action_contexts: Vec<GovActionInputContext>,
     pub last_enacted_gov_action: Vec<GovActionInputContext>,
-    pub committee_context: CommitteeInputContext,
+    pub current_committee_members: Vec<CommitteeInputContext>,
+    pub potential_committee_members: Vec<CommitteeInputContext>,
     pub treasury_value: u64,
     pub network_type: NetworkType,
 }
@@ -95,7 +100,8 @@ impl ValidationInputContext {
         last_enacted_gov_action: Vec<GovActionInputContext>,
         treasury_value: u64,
         network_type: NetworkType,
-        committee_context: CommitteeInputContext,
+        current_committee_members: Vec<CommitteeInputContext>,
+        potential_committee_members: Vec<CommitteeInputContext>,
     ) -> Self {
         Self {
             utxo_set,
@@ -108,55 +114,88 @@ impl ValidationInputContext {
             last_enacted_gov_action,
             treasury_value,
             network_type,
-            committee_context,
+            current_committee_members,
+            potential_committee_members,
         }
     }
 
     pub fn find_utxo(&self, tx_hash: String, tx_index: u32) -> Option<&UtxoInputContext> {
-        self.utxo_set.iter().find(|utxo| utxo.utxo.input.tx_hash == tx_hash && utxo.utxo.input.output_index == tx_index)
+        self.utxo_set.iter().find(|utxo| {
+            utxo.utxo.input.tx_hash == tx_hash && utxo.utxo.input.output_index == tx_index
+        })
     }
 
     pub fn find_account_context(&self, bech32_address: &String) -> Option<&AccountInputContext> {
-        self.account_contexts.iter().find(|account| &account.bech32_address == bech32_address)
+        self.account_contexts
+            .iter()
+            .find(|account| &account.bech32_address == bech32_address)
     }
 
     pub fn find_drep_context(&self, bech32_drep: &String) -> Option<&DrepInputContext> {
-        self.drep_contexts.iter().find(|drep| &drep.bech32_drep == bech32_drep)
+        self.drep_contexts
+            .iter()
+            .find(|drep| &drep.bech32_drep == bech32_drep)
     }
 
     pub fn find_pool_context(&self, pool_id: &String) -> Option<&PoolInputContext> {
-        self.pool_contexts.iter().find(|pool| &pool.pool_id == pool_id)
+        self.pool_contexts
+            .iter()
+            .find(|pool| &pool.pool_id == pool_id)
     }
 
-    pub fn find_gov_action_context(&self, action_id: GovernanceActionId) -> Option<&GovActionInputContext> {
-        self.gov_action_contexts.iter().find(|action| action.action_id == action_id)
+    pub fn find_gov_action_context(
+        &self,
+        action_id: GovernanceActionId,
+    ) -> Option<&GovActionInputContext> {
+        self.gov_action_contexts
+            .iter()
+            .find(|action| action.action_id == action_id)
     }
 
-    pub fn find_last_enacted_gov_action(&self, action_type: GovernanceActionType) -> Option<&GovActionInputContext> {
-        self.last_enacted_gov_action.iter().find(|action| action.action_type == action_type)
+    pub fn find_last_enacted_gov_action(
+        &self,
+        action_type: GovernanceActionType,
+    ) -> Option<&GovActionInputContext> {
+        self.last_enacted_gov_action
+            .iter()
+            .find(|action| action.action_type == action_type)
     }
 
-    pub fn find_committee_member(&self, credential: &LocalCredential) -> Option<&LocalCredential> {
-        self.committee_context.active_committee_members.iter().find(|member| member == &credential)
+    pub fn find_current_committee_member_by_cold_credential(
+        &self,
+        credential: &LocalCredential,
+    ) -> Option<&CommitteeInputContext> {
+        self.current_committee_members
+            .iter()
+            .find(|member| member.committee_member_cold == *credential)
     }
 
-    pub fn find_potential_committee_member(&self, credential: &LocalCredential) -> Option<&LocalCredential> {
-        self.committee_context.potential_committee_members.iter().find(|member| member == &credential)
-    }
-    
-    pub fn find_resigned_committee_member(&self, credential: &LocalCredential) -> Option<&LocalCredential> {
-        self.committee_context.resigned_committee_members.iter().find(|member| member == &credential)
-    }
-
-    pub fn is_active_committee_member(&self, credential: &LocalCredential) -> bool {
-        self.committee_context.active_committee_members.iter().any(|member| member == credential)
+    pub fn find_potential_committee_member_by_cold_credential(
+        &self,
+        credential: &LocalCredential,
+    ) -> Option<&CommitteeInputContext> {
+        self.potential_committee_members
+            .iter()
+            .find(|member| member.committee_member_cold == *credential)
     }
 
-    pub fn is_potential_committee_member(&self, credential: &LocalCredential) -> bool {
-        self.committee_context.potential_committee_members.iter().any(|member| member == credential)
+    pub fn find_current_committee_member_by_hot_credential(
+        &self,
+        credential: &LocalCredential,
+    ) -> Option<&CommitteeInputContext> {
+        self.current_committee_members
+            .iter()
+            .filter(|member| member.committee_member_hot.is_some())
+            .find(|member| member.committee_member_hot.as_ref().unwrap() == credential)
     }
-    
-    pub fn is_resigned_committee_member(&self, credential: &LocalCredential) -> bool {
-        self.committee_context.resigned_committee_members.iter().any(|member| member == credential)
+
+    pub fn find_potential_committee_member_by_hot_credential(
+        &self,
+        credential: &LocalCredential,
+    ) -> Option<&CommitteeInputContext> {
+        self.potential_committee_members
+            .iter()
+            .filter(|member| member.committee_member_hot.is_some())
+            .find(|member| member.committee_member_hot.as_ref().unwrap() == credential)
     }
 }
