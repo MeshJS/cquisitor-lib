@@ -1,11 +1,12 @@
 use crate::{
     js_error::JsError,
-    validators::phase_1::{
+    validators::{
         common::FeeDecomposition,
-        errors::{
-            Phase1Error, Phase1Warning, ValidationError, ValidationResult, ValidationWarning,
+        input_contexts::{UtxoInputContext, ValidationInputContext},
+        phase_1::errors::{
+            Phase1Error, Phase1Warning, ValidationPhase1Error, ValidationPhase1Warning,
         },
-        UtxoInputContext, ValidationInputContext,
+        validation_result::ValidationResult,
     },
 };
 use cardano_serialization_lib as csl;
@@ -24,9 +25,7 @@ impl FeeValidator {
         validation_input_context: &'a ValidationInputContext,
     ) -> Result<Self, JsError> {
         let utxos = collect_utxos(tx_body, validation_input_context);
-        let redeemers = tx_witness_set  
-            .redeemers()
-            .unwrap_or(csl::Redeemers::new());
+        let redeemers = tx_witness_set.redeemers().unwrap_or(csl::Redeemers::new());
         let total_reference_scripts_size = utxos
             .iter()
             .filter(|utxo| utxo.utxo.output.script_ref.is_some())
@@ -45,19 +44,25 @@ impl FeeValidator {
 
         let csl_ref_script_fee =
             csl::min_ref_script_fee(total_reference_scripts_size, &ref_script_coins_per_byte_csl)
-                .map_err(|e| JsError::new(&format!("Failed to calculate min ref script fee: {:?}", e)))?;
+                .map_err(|e| {
+                JsError::new(&format!("Failed to calculate min ref script fee: {:?}", e))
+            })?;
         let ref_script_fee: u64 = csl_ref_script_fee.into();
-        let total_execution_units = redeemers
-            .total_ex_units()
-            .map_err(|e| JsError::new(&format!("Failed to calculate total execution units: {:?}", e)))?;
+        let total_execution_units = redeemers.total_ex_units().map_err(|e| {
+            JsError::new(&format!(
+                "Failed to calculate total execution units: {:?}",
+                e
+            ))
+        })?;
 
         let execution_prices = validation_input_context
             .protocol_parameters
             .execution_prices
             .to_csl();
         let execution_units_fee_csl =
-            csl::calculate_ex_units_ceil_cost(&total_execution_units, &execution_prices)
-                .map_err(|e| JsError::new(&format!("Failed to calculate execution units fee: {:?}", e)))?;
+            csl::calculate_ex_units_ceil_cost(&total_execution_units, &execution_prices).map_err(
+                |e| JsError::new(&format!("Failed to calculate execution units fee: {:?}", e)),
+            )?;
         let execution_units_fee: u64 = execution_units_fee_csl.into();
 
         let linear_fee = csl::LinearFee::new(
@@ -97,7 +102,7 @@ impl FeeValidator {
         let mut warnings = Vec::new();
 
         if self.actual_fee < self.expected_fee {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::FeeTooSmallUTxO {
                     actual_fee: self.actual_fee,
                     min_fee: self.expected_fee,
@@ -109,7 +114,7 @@ impl FeeValidator {
 
         // Only add warning if actual fee is more than 10% higher than expected fee
         if self.actual_fee > (self.expected_fee + (self.expected_fee / 10)) {
-            warnings.push(ValidationWarning::new(
+            warnings.push(ValidationPhase1Warning::new(
                 Phase1Warning::FeeIsBiggerThanMinFee {
                     actual_fee: self.actual_fee,
                     min_fee: self.expected_fee,
@@ -119,7 +124,7 @@ impl FeeValidator {
             ));
         };
 
-        ValidationResult::new(errors, warnings)
+        ValidationResult::new_phase_1(errors, warnings)
     }
 }
 

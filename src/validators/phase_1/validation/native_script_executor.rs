@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use cardano_serialization_lib as csl;
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct NativeScriptExecutor<'a> {
@@ -36,15 +36,18 @@ impl<'a> NativeScriptExecutor<'a> {
             csl::NativeScriptKind::ScriptAny => {
                 self.execute_any_script(self.script.as_script_any().ok_or("ScriptAny is None")?)
             }
-            csl::NativeScriptKind::ScriptNOfK => {
-                self.execute_nofk_script(self.script.as_script_n_of_k().ok_or("ScriptNOfK is None")?)
-            }
-            csl::NativeScriptKind::TimelockStart => {
-                self.execute_invalid_before_script(self.script.as_timelock_start().ok_or("TimelockStart is None")?)
-            }
-            csl::NativeScriptKind::TimelockExpiry => {
-                self.execute_invalid_hereafter_script(self.script.as_timelock_expiry().ok_or("TimelockExpiry is None")?)
-            }
+            csl::NativeScriptKind::ScriptNOfK => self
+                .execute_nofk_script(self.script.as_script_n_of_k().ok_or("ScriptNOfK is None")?),
+            csl::NativeScriptKind::TimelockStart => self.execute_invalid_before_script(
+                self.script
+                    .as_timelock_start()
+                    .ok_or("TimelockStart is None")?,
+            ),
+            csl::NativeScriptKind::TimelockExpiry => self.execute_invalid_hereafter_script(
+                self.script
+                    .as_timelock_expiry()
+                    .ok_or("TimelockExpiry is None")?,
+            ),
         }
     }
 

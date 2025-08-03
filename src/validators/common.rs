@@ -4,10 +4,7 @@ use std::convert::TryFrom;
 use serde::{Serialize, Deserialize};
 use std::fmt;
 
-use cardano_serialization_lib as csl;
-use cardano_serialization_lib::Vkeywitness;
-
-pub use crate::validators::phase_1::value::{Value};
+pub use crate::validators::value::{Value};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -25,7 +22,8 @@ pub enum GovernanceActionType {
 #[serde(rename_all = "camelCase")]
 pub enum NetworkType {
     Mainnet,
-    Testnet,
+    Preview,
+    Preprod,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]

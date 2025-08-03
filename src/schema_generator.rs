@@ -1,9 +1,9 @@
-use schemars::{schema_for, JsonSchema};
+use schemars::{schema_for};
 use serde_json;
 use std::collections::HashMap;
 
-use crate::validators::phase_1::input_contexts::{NecessaryInputData, ValidationInputContext};
-use crate::validators::phase_1::errors::ValidationResult;
+use crate::validators::input_contexts::{NecessaryInputData, ValidationInputContext};
+use crate::validators::validation_result::ValidationResult;
 
 /// Generate JSON schemas for the three main types
 pub fn generate_schemas() -> Result<HashMap<String, serde_json::Value>, String> {

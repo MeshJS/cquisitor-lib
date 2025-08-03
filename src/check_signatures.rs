@@ -15,9 +15,11 @@ pub struct CheckResult {
     pub valid: bool,
     pub tx_hash: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub invalidCatalystWitnesses: Vec<String>,
+    #[serde(rename = "invalidCatalystWitnesses")]
+    pub invalid_catalyst_witnesses: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub invalidVkeyWitnesses: Vec<String>,
+    #[serde(rename = "invalidVkeyWitnesses")]
+    pub invalid_vkey_witnesses: Vec<String>,
 }
 
 impl CheckResult {
@@ -25,8 +27,8 @@ impl CheckResult {
         CheckResult {
             valid: true,
             tx_hash: Some(tx_hash.to_string()),
-            invalidCatalystWitnesses: vec![],
-            invalidVkeyWitnesses: vec![],
+            invalid_catalyst_witnesses: vec![],
+            invalid_vkey_witnesses: vec![],
         }
     }
 
@@ -38,8 +40,8 @@ impl CheckResult {
         CheckResult {
             valid: false,
             tx_hash: Some(tx_hash.to_string()),
-            invalidCatalystWitnesses: invalid_catalyst,
-            invalidVkeyWitnesses: invalid_vkeys,
+            invalid_catalyst_witnesses: invalid_catalyst,
+            invalid_vkey_witnesses: invalid_vkeys,
         }
     }
 }
@@ -67,8 +69,8 @@ pub fn check_tx_signature(
     Ok(CheckResult {
         valid: is_valid,
         tx_hash: Some(tx_hash.to_string()),
-        invalidCatalystWitnesses: vec![],
-        invalidVkeyWitnesses: vec![],
+        invalid_catalyst_witnesses: vec![],
+        invalid_vkey_witnesses: vec![],
     })
 }
 

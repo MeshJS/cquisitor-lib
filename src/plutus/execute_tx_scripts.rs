@@ -5,7 +5,7 @@ use crate::common::{CostModels, UTxO};
 use pallas_primitives::conway::{MintedTx, Redeemer, RedeemerTag};
 use pallas_primitives::ExUnits;
 use pallas_traverse::{Era, MultiEraTx};
-use serde_json::{Map, Number, Value};
+use serde_json::{Map, Value};
 use std::collections::HashSet;
 use uplc::machine::cost_model::ExBudget;
 use uplc::tx::error::Error;

@@ -1,6 +1,6 @@
 use cardano_serialization_lib as csl;
 
-use crate::validators::phase_1::common::{LocalCredential, NetworkType};
+use crate::validators::common::{LocalCredential, NetworkType};
 
 pub fn string_to_csl_address(address_str: &String) -> Result<csl::Address, String> {
     match csl::Address::from_bech32(&address_str) {
@@ -22,7 +22,8 @@ pub fn csl_tx_input_to_string(tx_input: &csl::TransactionInput) -> String {
 pub fn credential_to_bech32_reward_address(credential: &csl::Credential, network_type: &NetworkType) -> String {
     let network_id = match network_type {
         NetworkType::Mainnet =>  csl::NetworkInfo::mainnet().network_id(),
-        NetworkType::Testnet =>  csl::NetworkInfo::testnet_preprod().network_id(),
+        NetworkType::Preview =>  csl::NetworkInfo::testnet_preview().network_id(),
+        NetworkType::Preprod =>  csl::NetworkInfo::testnet_preprod().network_id(),
     };
     let address = csl::RewardAddress::new(network_id, credential).to_address().to_bech32(None);
     address.unwrap_or_else(|_| "".to_string())
@@ -56,7 +57,7 @@ pub fn normalize_script_ref(
         let mut encoder = pallas_codec::minicbor::Encoder::new(Vec::new());
         encoder
             .tag(pallas_codec::minicbor::data::Tag::new(24))
-            .map_err(|e| "Failed to write tag")?;
+            .map_err(|_| "Failed to write tag")?;
         encoder
             .bytes(&bytes)
             .map_err(|e| format!("Failed to encode script ref bytes: {}", e))?;
@@ -72,4 +73,10 @@ pub fn normalize_script_ref(
             )
         })
     }
+}
+
+pub fn normalize_script_ref_raw(
+    script_ref: &String,
+) -> Result<Vec<u8>, String> {
+    normalize_script_ref(script_ref).map(|script_ref| script_ref.to_bytes())
 }

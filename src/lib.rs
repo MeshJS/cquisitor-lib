@@ -1,11 +1,11 @@
 mod js_error;
 pub mod csl_decoders;
 pub mod plutus;
-mod cbor;
+pub mod cbor;
 mod bingen;
-mod check_signatures;
+pub mod check_signatures;
 mod js_value;
-mod validators;
+pub mod validators;
 pub mod common;
 pub mod schema_generator;
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global

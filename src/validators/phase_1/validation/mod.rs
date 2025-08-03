@@ -1,18 +1,18 @@
-pub mod collateral;
 pub mod auxiliary_data;
-pub mod registration;
-pub mod witness;
 pub mod balance;
-pub mod native_script_executor;
+pub mod collateral;
 pub mod fee;
+pub mod native_script_executor;
 pub mod output;
+pub mod registration;
 pub mod transaction_limits;
+pub mod witness;
 
-pub use collateral::CollateralValidator;
 pub use auxiliary_data::AuxiliaryDataValidator;
-pub use registration::RegistrationValidator;
-pub use witness::WitnessValidator;
 pub use balance::BalanceValidator;
+pub use collateral::CollateralValidator;
 pub use native_script_executor::NativeScriptExecutor;
 pub use output::OutputValidator;
+pub use registration::RegistrationValidator;
 pub use transaction_limits::TransactionLimitsValidator;
+pub use witness::WitnessValidator;

@@ -1,4 +1,3 @@
-use cardano_serialization_lib as csl;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
@@ -6,38 +5,22 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 use crate::common::TxInput;
-use crate::validators::phase_1::common::ProtocolVersion;
+use crate::validators::common::ProtocolVersion;
 
-use super::common::{FeeDecomposition, LocalCredential as Credential, GovernanceActionId, Voter};
-use super::value::Value;
-use super::hints::{get_error_hint, get_warning_hint};
-
-#[derive(Serialize, Deserialize, JsonSchema)]
-pub struct ValidationResult {
-    pub errors: Vec<ValidationError>,
-    pub warnings: Vec<ValidationWarning>,
-}
-
-impl ValidationResult {
-    pub fn new(errors: Vec<ValidationError>, warnings: Vec<ValidationWarning>) -> Self {
-        Self { errors, warnings }
-    }
-
-    pub fn append(&mut self, other: ValidationResult) {
-        self.errors.extend(other.errors);
-        self.warnings.extend(other.warnings);
-    }
-}
+use crate::validators::common::{FeeDecomposition, LocalCredential as Credential, GovernanceActionId, Voter};
+use crate::validators::phase_1::hints::get_error_hint;
+use crate::validators::phase_1::hints::get_warning_hint;
+use crate::validators::value::Value;
 
 #[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
-pub struct ValidationError {
+pub struct ValidationPhase1Error {
     pub error: Phase1Error,
     pub error_message: String,
     pub locations: Vec<String>,
     pub hint: Option<String>,
 }
 
-impl ValidationError {
+impl ValidationPhase1Error {
     pub fn new(error: Phase1Error, location: String) -> Self {
         let error_message = error.to_string();
         let hint = get_error_hint(&error);
@@ -62,13 +45,13 @@ impl ValidationError {
 }
 
 #[derive(Serialize, Deserialize, JsonSchema, Clone, Debug)]
-pub struct ValidationWarning {
+pub struct ValidationPhase1Warning {
     pub warning: Phase1Warning,
     pub locations: Vec<String>,
     pub hint: Option<String>,
 }
 
-impl ValidationWarning {
+impl ValidationPhase1Warning {
     pub fn new(warning: Phase1Warning, location: String) -> Self {
         let hint = get_warning_hint(&warning);
         Self {
@@ -245,31 +228,26 @@ pub enum Phase1Error {
     DRepIncorrectDeposit {
         supplied_deposit: i128,
         required_deposit: i128,
-        cert_index: u32,
     },
     /// DRep deregistration refund mismatch
     DRepDeregistrationWrongRefund {
         supplied_refund: i128,
         required_refund: i128,
-        cert_index: u32,
     },
     /// Stake registration deposit mismatch
     StakeRegistrationWrongDeposit {
         supplied_deposit: i128,
         required_deposit: i128,
-        cert_index: u32,
     },
     /// Stake deregistration refund mismatch
     StakeDeregistrationWrongRefund {
         supplied_refund: i128,
         required_refund: i128,
-        cert_index: u32,
     },
     /// Pool registration deposit mismatch
     PoolRegistrationWrongDeposit {
         supplied_deposit: i128,
         required_deposit: i128,
-        cert_index: u32,
     },
     /// Committee member has previously resigned
     CommitteeHasPreviouslyResigned { committee_credential: Credential },
@@ -651,7 +629,6 @@ impl Phase1Error {
             Self::DRepIncorrectDeposit {
                         supplied_deposit,
                         required_deposit,
-                        cert_index, 
                     } => {
                         format!(
                             "Incorrect DRep deposit. Supplied: {}, Required: {}",
@@ -831,17 +808,17 @@ impl Phase1Error {
             Self::WrongRequestedWithdrawalAmount { expected_amount, requested_amount, reward_address } => {
                 format!("Wrong requested withdrawal amount. Expected: {}, Requested: {}, Reward address: {}", expected_amount, requested_amount, reward_address)
             }
-            Self::DRepDeregistrationWrongRefund { supplied_refund, required_refund, cert_index } => {
-                format!("DRep deregistration refund mismatch. Supplied: {}, Required: {}, Certificate index: {}", supplied_refund, required_refund, cert_index)
+            Self::DRepDeregistrationWrongRefund { supplied_refund, required_refund } => {
+                format!("DRep deregistration refund mismatch. Supplied: {}, Required: {}", supplied_refund, required_refund)
             }
-            Self::StakeRegistrationWrongDeposit { supplied_deposit, required_deposit, cert_index } => {
-                format!("Stake registration deposit mismatch. Supplied: {}, Required: {}, Certificate index: {}", supplied_deposit, required_deposit, cert_index)
+            Self::StakeRegistrationWrongDeposit { supplied_deposit, required_deposit } => {
+                format!("Stake registration deposit mismatch. Supplied: {}, Required: {}", supplied_deposit, required_deposit)
             }
-            Self::StakeDeregistrationWrongRefund { supplied_refund, required_refund, cert_index } => {
-                format!("Stake deregistration refund mismatch. Supplied: {}, Required: {}, Certificate index: {}", supplied_refund, required_refund, cert_index)
+            Self::StakeDeregistrationWrongRefund { supplied_refund, required_refund } => {
+                format!("Stake deregistration refund mismatch. Supplied: {}, Required: {}", supplied_refund, required_refund)
             }
-            Self::PoolRegistrationWrongDeposit { supplied_deposit, required_deposit, cert_index } => {
-                format!("Pool registration deposit mismatch. Supplied: {}, Required: {}, Certificate index: {}", supplied_deposit, required_deposit, cert_index)
+            Self::PoolRegistrationWrongDeposit { supplied_deposit, required_deposit } => {
+                format!("Pool registration deposit mismatch. Supplied: {}, Required: {}", supplied_deposit, required_deposit)
             }
             Self::GenesisKeyDelegationCertificateIsNotSupported => {
                 "Genesis key delegation certificate is not supported".to_string()
@@ -887,13 +864,9 @@ pub enum Phase1Warning {
         invalid_collateral: String,
     },
     /// Cannot check stake key deregistration refund
-    CannotCheckStakeDeregistrationRefund {
-        cert_index: u32,
-    },
+    CannotCheckStakeDeregistrationRefund,
     /// Cannot check DRep deregistration refund
-    CannotCheckDRepDeregistrationRefund {
-        cert_index: u32,
-    },
+    CannotCheckDRepDeregistrationRefund,
     /// Pool already registered
     PoolAlreadyRegistered {
         pool_id: String,
@@ -962,11 +935,11 @@ impl Phase1Warning {
             Self::DuplicateRegistrationInTx { entity_type, entity_id, cert_index } => {
                         format!("Duplicate registration attempt in the same transaction. Entity type: {}, Entity ID: {}, Certificate index: {}", entity_type, entity_id, cert_index)
                     }
-            Self::CannotCheckStakeDeregistrationRefund { cert_index } => {
-                format!("Cannot check stake deregistration refund for certificate at index: {}", cert_index)
+            Self::CannotCheckStakeDeregistrationRefund => {
+                "Cannot check stake deregistration refund".to_string()
             },
-            Self::CannotCheckDRepDeregistrationRefund { cert_index } => {
-                format!("Cannot check DRep deregistration refund for certificate at index: {}", cert_index)
+            Self::CannotCheckDRepDeregistrationRefund => {
+                "Cannot check DRep deregistration refund".to_string()
             },
             Self::DuplicateCommitteeColdResignationInTx { committee_credential, cert_index } => {
                 format!("Duplicate committee cold resignation in the same transaction. Committee credential: {}, Certificate index: {}", committee_credential, cert_index)

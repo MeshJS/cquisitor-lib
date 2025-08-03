@@ -1,12 +1,14 @@
+use crate::validators::{
+    phase_1::errors::{Phase1Error, ValidationPhase1Error},
+    validation_result::ValidationResult,
+};
 use cardano_serialization_lib as csl;
-use crate::validators::phase_1::errors::{Phase1Error, ValidationError, ValidationResult};
 
 pub struct AuxiliaryDataValidator {
     pub auxiliary_data: Option<csl::AuxiliaryData>,
     pub expected_auxiliary_data_hash: Option<csl::AuxiliaryDataHash>,
     pub actual_auxiliary_data_hash: Option<csl::AuxiliaryDataHash>,
 }
-
 
 impl AuxiliaryDataValidator {
     pub fn new(tx_body: &csl::TransactionBody, auxiliary_data: Option<csl::AuxiliaryData>) -> Self {
@@ -32,37 +34,34 @@ impl AuxiliaryDataValidator {
                 match self.actual_auxiliary_data_hash.as_ref() {
                     Some(actual_hash) => {
                         if actual_hash != expected_hash {
-                            errors.push(
-                                ValidationError::new(
-                                    Phase1Error::AuxiliaryDataHashMismatch {
-                                        expected_hash: expected_hash.to_hex(),
-                                        actual_hash: self.actual_auxiliary_data_hash.as_ref().map(|h| h.to_hex()),
-                                    },
-                                    "transaction.body.auxiliary_data_hash".to_string(),
-                                )
-                            );
+                            errors.push(ValidationPhase1Error::new(
+                                Phase1Error::AuxiliaryDataHashMismatch {
+                                    expected_hash: expected_hash.to_hex(),
+                                    actual_hash: self
+                                        .actual_auxiliary_data_hash
+                                        .as_ref()
+                                        .map(|h| h.to_hex()),
+                                },
+                                "transaction.body.auxiliary_data_hash".to_string(),
+                            ));
                         }
                     }
                     None => {
-                        errors.push(
-                            ValidationError::new(
-                                Phase1Error::AuxiliaryDataHashMissing,
-                                "transaction.body.auxiliary_data_hash".to_string(),
-                            )
-                        );
+                        errors.push(ValidationPhase1Error::new(
+                            Phase1Error::AuxiliaryDataHashMissing,
+                            "transaction.body.auxiliary_data_hash".to_string(),
+                        ));
                     }
                 };
             } else {
                 if let Some(_) = &self.actual_auxiliary_data_hash {
-                    errors.push(
-                        ValidationError::new(
-                            Phase1Error::AuxiliaryDataHashPresentButNotExpected,
-                            "transaction.body.auxiliary_data_hash".to_string(),
-                        )
-                    );
+                    errors.push(ValidationPhase1Error::new(
+                        Phase1Error::AuxiliaryDataHashPresentButNotExpected,
+                        "transaction.body.auxiliary_data_hash".to_string(),
+                    ));
                 }
             }
         }
-        ValidationResult::new(errors, Vec::new())
+        ValidationResult::new_phase_1(errors, Vec::new())
     }
 }

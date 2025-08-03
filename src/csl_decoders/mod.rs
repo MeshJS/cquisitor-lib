@@ -1,3 +1,3 @@
-mod universal_decoder;
-mod specific_decoders;
-mod params;
+pub mod universal_decoder;
+pub mod specific_decoders;
+pub mod params;

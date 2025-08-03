@@ -1,10 +1,17 @@
-use std::collections::HashSet;
-
-use crate::{common::TxInput, validators::phase_1::{
-    errors::{Phase1Error, Phase1Warning, ValidationError, ValidationResult, ValidationWarning}, helpers::normalize_script_ref, UtxoInputContext, ValidationInputContext
-}};
+use crate::{
+    common::TxInput,
+    js_error::JsError,
+    validators::{
+        helpers::normalize_script_ref,
+        input_contexts::{UtxoInputContext, ValidationInputContext},
+        phase_1::errors::{
+            Phase1Error, Phase1Warning, ValidationPhase1Error, ValidationPhase1Warning,
+        },
+        validation_result::ValidationResult,
+    },
+};
 use cardano_serialization_lib as csl;
-use crate::js_error::JsError;
+use std::collections::HashSet;
 
 const MAX_REFERENCE_SCRIPTS_SIZE: u64 = 200 * 1024;
 
@@ -33,25 +40,43 @@ impl<'a> TransactionLimitsValidator<'a> {
         validation_input_context: &'a ValidationInputContext,
     ) -> Result<Self, JsError> {
         let actual_tx_size = tx_size as u64;
-        let max_tx_size = validation_input_context.protocol_parameters.max_transaction_size as u64;
+        let max_tx_size = validation_input_context
+            .protocol_parameters
+            .max_transaction_size as u64;
 
         let redeemers = tx_witness_set.redeemers().unwrap_or(csl::Redeemers::new());
-        let total_execution_units = redeemers
-            .total_ex_units()
-            .unwrap_or(csl::ExUnits::new(&csl::BigNum::from(0u64), &csl::BigNum::from(0u64)));
+        let total_execution_units = redeemers.total_ex_units().unwrap_or(csl::ExUnits::new(
+            &csl::BigNum::from(0u64),
+            &csl::BigNum::from(0u64),
+        ));
 
         let actual_execution_units = (
-            total_execution_units.mem().to_str().parse::<u64>().unwrap_or(0),
-            total_execution_units.steps().to_str().parse::<u64>().unwrap_or(0),
+            total_execution_units
+                .mem()
+                .to_str()
+                .parse::<u64>()
+                .unwrap_or(0),
+            total_execution_units
+                .steps()
+                .to_str()
+                .parse::<u64>()
+                .unwrap_or(0),
         );
 
         let max_execution_units = (
-            validation_input_context.protocol_parameters.max_tx_execution_units.mem,
-            validation_input_context.protocol_parameters.max_tx_execution_units.steps,
+            validation_input_context
+                .protocol_parameters
+                .max_tx_execution_units
+                .mem,
+            validation_input_context
+                .protocol_parameters
+                .max_tx_execution_units
+                .steps,
         );
 
         let utxos = collect_utxos(tx_body, validation_input_context);
-        let actual_ref_scripts_size = calculate_total_reference_scripts_size(&utxos).map_err(|e| JsError::new(&e.to_string()))?;
+        let actual_ref_scripts_size = calculate_total_reference_scripts_size(&utxos)
+            .map_err(|e| JsError::new(&e.to_string()))?;
 
         let current_slot = validation_input_context.slot;
         let validity_interval = get_validity_interval(tx_body);
@@ -59,22 +84,35 @@ impl<'a> TransactionLimitsValidator<'a> {
         let inputs_sorted = check_inputs_sorted(tx_body);
         let inputs_count = tx_body.inputs().len();
 
-        let ref_inputs = tx_body.reference_inputs().unwrap_or(csl::TransactionInputs::new());
-        let collateral_inputs = tx_body.collateral().unwrap_or(csl::TransactionInputs::new());
+        let ref_inputs = tx_body
+            .reference_inputs()
+            .unwrap_or(csl::TransactionInputs::new());
+        let collateral_inputs = tx_body
+            .collateral()
+            .unwrap_or(csl::TransactionInputs::new());
         let inputs = tx_body.inputs();
 
-        let ref_inputs = ref_inputs.into_iter().map(|input| TxInput {
-            tx_hash: input.transaction_id().to_hex(),
-            output_index: input.index(),
-        }).collect();
-        let collateral_inputs = collateral_inputs.into_iter().map(|input| TxInput {
-            tx_hash: input.transaction_id().to_hex(),
-            output_index: input.index(),
-        }).collect();
-        let inputs = inputs.into_iter().map(|input| TxInput {
-            tx_hash: input.transaction_id().to_hex(),
-            output_index: input.index(),
-        }).collect();
+        let ref_inputs = ref_inputs
+            .into_iter()
+            .map(|input| TxInput {
+                tx_hash: input.transaction_id().to_hex(),
+                output_index: input.index(),
+            })
+            .collect();
+        let collateral_inputs = collateral_inputs
+            .into_iter()
+            .map(|input| TxInput {
+                tx_hash: input.transaction_id().to_hex(),
+                output_index: input.index(),
+            })
+            .collect();
+        let inputs = inputs
+            .into_iter()
+            .map(|input| TxInput {
+                tx_hash: input.transaction_id().to_hex(),
+                output_index: input.index(),
+            })
+            .collect();
 
         Ok(Self {
             actual_tx_size,
@@ -98,14 +136,14 @@ impl<'a> TransactionLimitsValidator<'a> {
         let mut errors = Vec::new();
 
         if self.inputs_count == 0 {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::InputSetEmptyUTxO,
                 "transaction.body.inputs".to_string(),
             ));
         }
 
         if self.actual_tx_size > self.max_tx_size {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::MaxTxSizeUTxO {
                     actual_size: self.actual_tx_size,
                     max_size: self.max_tx_size,
@@ -114,9 +152,10 @@ impl<'a> TransactionLimitsValidator<'a> {
             ));
         }
 
-        if self.actual_execution_units.0 > self.max_execution_units.0 ||
-            self.actual_execution_units.1 > self.max_execution_units.1 {
-            errors.push(ValidationError::new(
+        if self.actual_execution_units.0 > self.max_execution_units.0
+            || self.actual_execution_units.1 > self.max_execution_units.1
+        {
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::ExUnitsTooBigUTxO {
                     actual_memory_units: self.actual_execution_units.0,
                     actual_steps_units: self.actual_execution_units.1,
@@ -128,7 +167,7 @@ impl<'a> TransactionLimitsValidator<'a> {
         }
 
         if self.actual_ref_scripts_size > self.max_ref_scripts_size {
-            errors.push(ValidationError::new(
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::RefScriptsSizeTooBig {
                     actual_size: self.actual_ref_scripts_size,
                     max_size: self.max_ref_scripts_size,
@@ -151,8 +190,8 @@ impl<'a> TransactionLimitsValidator<'a> {
                 (None, Some(end)) => (0, end),
                 (None, None) => (0, u64::MAX),
             };
-            
-            errors.push(ValidationError::new(
+
+            errors.push(ValidationPhase1Error::new(
                 Phase1Error::OutsideValidityIntervalUTxO {
                     current_slot: self.current_slot,
                     interval_start,
@@ -163,9 +202,11 @@ impl<'a> TransactionLimitsValidator<'a> {
         }
 
         for input in self.ref_inputs.iter() {
-            let utxo = self.validation_input_context.find_utxo(input.tx_hash.clone(), input.output_index);
+            let utxo = self
+                .validation_input_context
+                .find_utxo(input.tx_hash.clone(), input.output_index);
             if utxo.map(|utxo| utxo.is_spent).unwrap_or(true) {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::BadInputsUTxO {
                         invalid_input: input.clone(),
                     },
@@ -175,9 +216,11 @@ impl<'a> TransactionLimitsValidator<'a> {
         }
 
         for input in self.collateral_inputs.iter() {
-            let utxo = self.validation_input_context.find_utxo(input.tx_hash.clone(), input.output_index);
+            let utxo = self
+                .validation_input_context
+                .find_utxo(input.tx_hash.clone(), input.output_index);
             if utxo.map(|utxo| utxo.is_spent).unwrap_or(true) {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::BadInputsUTxO {
                         invalid_input: input.clone(),
                     },
@@ -187,9 +230,11 @@ impl<'a> TransactionLimitsValidator<'a> {
         }
 
         for input in self.inputs.iter() {
-            let utxo = self.validation_input_context.find_utxo(input.tx_hash.clone(), input.output_index);
+            let utxo = self
+                .validation_input_context
+                .find_utxo(input.tx_hash.clone(), input.output_index);
             if utxo.map(|utxo| utxo.is_spent).unwrap_or(true) {
-                errors.push(ValidationError::new(
+                errors.push(ValidationPhase1Error::new(
                     Phase1Error::BadInputsUTxO {
                         invalid_input: input.clone(),
                     },
@@ -201,7 +246,7 @@ impl<'a> TransactionLimitsValidator<'a> {
         let mut warnings = Vec::new();
 
         if !self.inputs_sorted {
-            warnings.push(ValidationWarning::new(
+            warnings.push(ValidationPhase1Warning::new(
                 Phase1Warning::InputsAreNotSorted,
                 "transaction.body.inputs".to_string(),
             ));
@@ -209,14 +254,16 @@ impl<'a> TransactionLimitsValidator<'a> {
 
         for (i, ref_input) in self.ref_inputs.iter().enumerate() {
             if self.inputs.contains(ref_input) {
-                errors.push(ValidationError::new(
-                    Phase1Error::ReferenceInputOverlapsWithInput { input: ref_input.clone() },
+                errors.push(ValidationPhase1Error::new(
+                    Phase1Error::ReferenceInputOverlapsWithInput {
+                        input: ref_input.clone(),
+                    },
                     format!("transaction.body.reference_inputs.{}", i),
                 ));
             }
         }
 
-        ValidationResult::new(errors, warnings)
+        ValidationResult::new_phase_1(errors, warnings)
     }
 }
 
@@ -243,7 +290,9 @@ fn collect_utxos<'a>(
     input_utxos
 }
 
-fn calculate_total_reference_scripts_size(utxos: &HashSet<&UtxoInputContext>) -> Result<u64, String> {
+fn calculate_total_reference_scripts_size(
+    utxos: &HashSet<&UtxoInputContext>,
+) -> Result<u64, String> {
     let mut total_size = 0u64;
     for utxo in utxos.iter() {
         if utxo.utxo.output.script_ref.is_some() {
@@ -258,9 +307,13 @@ fn calculate_total_reference_scripts_size(utxos: &HashSet<&UtxoInputContext>) ->
 }
 
 fn get_validity_interval(tx_body: &csl::TransactionBody) -> (Option<u64>, Option<u64>) {
-    let ttl = tx_body.ttl_bignum().map(|slot| slot.to_str().parse::<u64>().unwrap_or(0));
-    let validity_start_interval = tx_body.validity_start_interval_bignum().map(|slot| slot.to_str().parse::<u64>().unwrap_or(0));
-    
+    let ttl = tx_body
+        .ttl_bignum()
+        .map(|slot| slot.to_str().parse::<u64>().unwrap_or(0));
+    let validity_start_interval = tx_body
+        .validity_start_interval_bignum()
+        .map(|slot| slot.to_str().parse::<u64>().unwrap_or(0));
+
     (validity_start_interval, ttl)
 }
 
@@ -269,22 +322,22 @@ fn check_inputs_sorted(tx_body: &csl::TransactionBody) -> bool {
     if inputs.len() <= 1 {
         return true;
     }
-    
+
     for i in 1..inputs.len() {
         let prev_input = inputs.get(i - 1);
         let curr_input = inputs.get(i);
-        
+
         let prev_tx_id = prev_input.transaction_id();
         let curr_tx_id = curr_input.transaction_id();
-        
+
         if prev_tx_id > curr_tx_id {
             return false;
         }
-        
+
         if prev_tx_id == curr_tx_id && prev_input.index() > curr_input.index() {
             return false;
         }
     }
-    
+
     true
-} 
+}

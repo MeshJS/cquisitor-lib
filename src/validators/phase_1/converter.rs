@@ -1,4 +1,4 @@
-use crate::common::{UTxO, Asset, CostModels};
+use crate::common::{UTxO, Asset};
 use cardano_serialization_lib as csl;
 
 pub fn convert_utxo_to_csl(utxo: UTxO) -> csl::TransactionUnspentOutput {
@@ -99,22 +99,17 @@ fn create_value_from_assets(assets: Vec<Asset>) -> csl::Value {
     value
 }
 
-fn convert_cost_models_to_csl(cost_models: CostModels) -> csl::Costmdls {
-    let mut csl_cost_models = csl::Costmdls::new();
-    if let Some(v1) = cost_models.plutus_v1 {
-        let raw_cost_model: Vec<i128> = v1.iter().map(|x| i128::from(*x)).collect();
-        let cost_model = csl::CostModel::from(raw_cost_model);
-        csl_cost_models.insert(&csl::Language::new_plutus_v1(), &cost_model);
+pub(crate) fn pp_cost_model_to_csl(pp_cost_model: &Vec<i64>) -> csl::CostModel {
+    let mut cost_model = csl::CostModel::new();
+    for (i, cost) in pp_cost_model.iter().enumerate() {
+        if *cost < 0 {
+            #[allow(unused_must_use)]
+            cost_model.set(i, &csl::Int::new_negative(&csl::BigNum::from(cost.abs() as u64)));
+        } else {
+            #[allow(unused_must_use)]
+            cost_model.set(i, &csl::Int::new(&csl::BigNum::from(cost.abs() as u64)));
+        }
+
     }
-    if let Some(v2) = cost_models.plutus_v2 {
-        let raw_cost_model: Vec<i128> = v2.iter().map(|x| i128::from(*x)).collect();
-        let cost_model = csl::CostModel::from(raw_cost_model);
-        csl_cost_models.insert(&csl::Language::new_plutus_v2(), &cost_model);
-    }
-    if let Some(v3) = cost_models.plutus_v3 {
-        let raw_cost_model: Vec<i128> = v3.iter().map(|x| i128::from(*x)).collect();
-        let cost_model = csl::CostModel::from(raw_cost_model);
-        csl_cost_models.insert(&csl::Language::new_plutus_v3(), &cost_model);
-    }
-    csl_cost_models
+    cost_model
 }
