@@ -64,7 +64,7 @@ impl OutputValidator {
             // Check for oversized outputs
             if !self.oversized_outputs.is_empty() {
                 errors.push(ValidationPhase1Error::new(
-                    Phase1Error::OutputTooBigUTxO {
+                    Phase1Error::OutputsValueTooBig {
                         actual_size: *value_size,
                         max_size: self.max_value_size,
                     },

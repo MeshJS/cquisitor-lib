@@ -118,7 +118,7 @@ pub enum Phase1Error {
         max_size: u64,
     },
     /// One or more transaction outputs are too large in size
-    OutputTooBigUTxO {
+    OutputsValueTooBig {
         actual_size: u32,
         max_size: u32,
     },
@@ -479,12 +479,12 @@ impl Phase1Error {
                             actual_size, max_size
                         )
                     }
-            Self::OutputTooBigUTxO {
+            Self::OutputsValueTooBig {
                         actual_size,
                         max_size,
                     } => {
                         format!(
-                            "Transaction output exceeds maximum size of {} bytes: {:?}",
+                            "Transaction outputs value exceeds maximum size of {} bytes: {:?}",
                             max_size, actual_size
                         )
                     }

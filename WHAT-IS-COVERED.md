@@ -79,7 +79,7 @@ Validates transaction fees against protocol parameters.
 Validates transaction outputs for size and minimum ADA requirements.
 
 ### Errors (2)
-- **Output too big** - A transaction output exceeds the maximum allowed size in bytes
+- **Output too big value** - A transaction output value exceeds the maximum allowed size in bytes
 - **Output too small** - A transaction output contains less ADA than the minimum required amount
 
 ---
