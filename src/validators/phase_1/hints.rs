@@ -39,8 +39,8 @@ pub fn get_error_hint(error: &Phase1Error) -> Option<String> {
         Phase1Error::OutputBootAddrAttrsTooBig { .. } => Some(
             "Reduce the size of Byron address attributes or use a Shelley-era address instead. Byron addresses have strict size limitations on their attributes.".to_string()
         ),
-        Phase1Error::OutputTooBigUTxO { .. } => Some(
-            "Reduce the output size by: 1) Using smaller datums or reference scripts, 2) Reducing the number of native assets, 3) Using shorter asset names, or 4) Splitting into multiple outputs.".to_string()
+        Phase1Error::OutputsValueTooBig { .. } => Some(
+            "Reduce the output size by splitting into multiple outputs.".to_string()
         ),
         Phase1Error::InsufficientCollateral { .. } => Some(
             "Add more collateral inputs or increase the Ada amount in existing collateral inputs. Ensure collateral covers the required percentage of the transaction fee.".to_string()
