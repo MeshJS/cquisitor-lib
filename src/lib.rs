@@ -1,4 +1,4 @@
-mod js_error;
+pub mod js_error;
 pub mod csl_decoders;
 pub mod plutus;
 pub mod cbor;
