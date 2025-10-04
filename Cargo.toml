@@ -1,8 +1,15 @@
 [package]
 name = "cquisitor-lib"
-version = "0.1.0-beta.24"
+version = "0.1.0-beta.25"
 authors = ["Evgenii Lisitskii <evgeniilisitskii@gmail.com>"]
 edition = "2018"
+include = [
+    "src/**/*",
+    "tsconfig.json",
+    "Cargo.toml",
+    "LICENSE",
+    "README.md",
+]
 
 [lib]
 crate-type = ["cdylib", "rlib"]
