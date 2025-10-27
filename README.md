@@ -376,19 +376,6 @@ npm run build-all
 npm run generate-dts
 ```
 
-### Development
-
-```bash
-# Generate JSON schemas from Rust types
-npm run generate-schemas
-
-# Convert schemas to TypeScript definitions
-npm run schemas-to-dts
-
-# Run tests
-cargo test
-```
-
 ## Type Definitions
 
 Full TypeScript type definitions are available in the package and cover all input and output types. The main types include:
@@ -400,23 +387,6 @@ Full TypeScript type definitions are available in the package and cover all inpu
 - And many more detailed types for UTXOs, certificates, governance, etc.
 
 See [types/cquisitor_lib.d.ts](./types/cquisitor_lib.d.ts) for the complete type definitions.
-
-## Network Support
-
-The library supports all Cardano networks:
-
-- **Mainnet** - Production network
-- **Preview** - Preview testnet for testing new features
-- **Preprod** - Pre-production testnet
-
-Specify the network in the `ValidationInputContext`:
-
-```typescript
-const context = {
-    networkType: "mainnet", // or "preview" or "preprod"
-    // ...
-};
-```
 
 ## Performance
 
